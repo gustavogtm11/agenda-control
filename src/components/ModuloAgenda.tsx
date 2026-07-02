@@ -6,7 +6,7 @@ import { collection, addDoc, updateDoc, deleteDoc, query, where, onSnapshot, ord
 import '../App.css';
 
 interface ModuloAgendaProps {
-  perfil: { companyId: string, role: string } | null;
+  perfil: { companyId: string; role: string } | null;
 }
 
 interface Servico { id: string; nome: string; preco: number; duracaoMinutos: number; }
@@ -77,20 +77,58 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     });
   }, [perfil?.companyId]);
 
+  // FUNÇÃO NOVA: Filtra horários ocupados e evita encavalamento
+  const obterHorariosDisponiveis = () => {
+    const todosHorarios = gerarHorarios();
+    if (!dataForm) return todosHorarios;
+
+    const servicoAtual = servicosDisponiveis.find(s => s.id === idServicoSelecionado);
+    const duracaoAtual = servicoAtual?.duracaoMinutos || 30; // Se não escolheu, simula 30 min
+
+    const agendamentosDoDia = agendamentos.filter(a =>
+      a.dataHora.startsWith(dataForm) && a.id !== idEmEdicao
+    );
+
+    return todosHorarios.filter(horario => {
+      const [h, m] = horario.split(':').map(Number);
+      const inicioDesejado = h * 60 + m; // Converte para minutos
+      const fimDesejado = inicioDesejado + duracaoAtual;
+
+      const temConflito = agendamentosDoDia.some(agendamento => {
+         const [hAg, mAg] = agendamento.dataHora.split('T')[1].split(':').map(Number);
+         const inicioOcupado = hAg * 60 + mAg;
+
+         const servicoAgendado = servicosDisponiveis.find(s => s.id === agendamento.servicoId);
+         const duracaoOcupada = servicoAgendado?.duracaoMinutos || 30;
+         const fimOcupado = inicioOcupado + duracaoOcupada;
+
+         // A mágica: Um horário encavala se ele começa ANTES do outro terminar e termina DEPOIS do outro começar
+         return inicioDesejado < fimOcupado && fimDesejado > inicioOcupado;
+      });
+
+      return !temConflito;
+    });
+  };
+
+  const horariosValidos = obterHorariosDisponiveis();
+  // Garante que o select não quebre caso o horário selecionado suma da lista após mudar a data/serviço
+  const horaExibida = horariosValidos.includes(horaForm) ? horaForm : (horariosValidos[0] || '');
+
   async function lidarComAgendamento(e: React.FormEvent) {
     e.preventDefault();
     if (!cliente || !dataForm || !horaForm || !idServicoSelecionado || !perfil?.companyId) {
       alert("Preencha todos os campos obrigatórios!"); return;
     }
+    
+    if (horariosValidos.length === 0) {
+      alert("Não há horários disponíveis para este dia com essa duração!"); return;
+    }
 
     const servicoEscolhido = servicosDisponiveis.find(s => s.id === idServicoSelecionado);
     const funcEscolhido = funcionarios.find(f => f.email === emailFuncionarioSelecionado);
-    const dataHoraIso = `${dataForm}T${horaForm}`;
-
-    const choqueDeHorario = agendamentos.find(a => a.dataHora === dataHoraIso && a.status === 'pendente' && a.id !== idEmEdicao);
-    if (choqueDeHorario) {
-      if (!window.confirm(`⚠️ O horário ${horaForm} já está agendado para ${choqueDeHorario.clienteNome}. Deseja forçar o agendamento?`)) return;
-    }
+    
+    // Pega a hora validada (caso a antiga tenha ficado bloqueada)
+    const dataHoraIso = `${dataForm}T${horaExibida}`;
 
     try {
       const tokenGoogle = sessionStorage.getItem('googleToken');
@@ -232,9 +270,8 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   }
 
   function mudarDia(delta: number) {
-    // CORREÇÃO: Separando a string para evitar conflitos de fuso horário que causavam o travamento
     const [ano, mes, dia] = dataVisaoDiaria.split('-').map(Number);
-    const dataAtual = new Date(ano, mes - 1, dia); // Mês no JS começa em 0
+    const dataAtual = new Date(ano, mes - 1, dia); 
     dataAtual.setDate(dataAtual.getDate() + delta);
     
     const novoAno = dataAtual.getFullYear();
@@ -248,12 +285,11 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     if (dataVisaoDiaria === pegarDataRelativa(0)) return 'Hoje';
     if (dataVisaoDiaria === pegarDataRelativa(-1)) return 'Ontem';
     if (dataVisaoDiaria === pegarDataRelativa(1)) return 'Amanhã';
-    const [ano, mes, dia] = dataVisaoDiaria.split('-');
-    return `${dia}/${mes}`;
+    return 'Data Selecionada';
   };
 
   const tituloDaData = obterTituloDataVisao();
-  const corDoTitulo = tituloDaData === 'Hoje' ? '#3498db' : 'var(--text-principal)';
+  const corDoTitulo = tituloDaData === 'Hoje' ? '#3498db' : 'var(--text-secundario)';
 
   const agendamentosDoDia = agendamentos.filter(a => a.dataHora.startsWith(dataVisaoDiaria));
 
@@ -287,13 +323,20 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
           onChange={e => setDataForm(e.target.value)} 
           style={{ ...inputStyle, flex: '1 1 130px' }} 
         />
+        
+        {/* Select de Horários Inteligente (Filtra ocupados) */}
         <select 
-          value={horaForm} 
+          value={horaExibida} 
           onChange={e => setHoraForm(e.target.value)} 
           style={{ ...inputStyle, flex: '1 1 100px' }}
         >
-          {gerarHorarios().map(h => <option key={h} value={h}>{h}</option>)}
+          {horariosValidos.length === 0 ? (
+            <option value="">Lotação Máx.</option>
+          ) : (
+            horariosValidos.map(h => <option key={h} value={h}>{h}</option>)
+          )}
         </select>
+
         <select 
           value={idServicoSelecionado} 
           onChange={e => setIdServicoSelecionado(e.target.value)} 
@@ -311,7 +354,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
           {funcionarios.map(f => <option key={f.email} value={f.email}>{f.nome}</option>)}
         </select>
         
-        <button type="submit" style={{ padding: '12px 20px', backgroundColor: idEmEdicao ? '#e67e22' : '#2980b9', color: 'white', border: 'none', cursor: 'pointer', borderRadius: '6px', fontWeight: 'bold' }}>
+        <button type="submit" disabled={horariosValidos.length === 0} style={{ padding: '12px 20px', backgroundColor: horariosValidos.length === 0 ? '#95a5a6' : (idEmEdicao ? '#e67e22' : '#2980b9'), color: 'white', border: 'none', cursor: horariosValidos.length === 0 ? 'not-allowed' : 'pointer', borderRadius: '6px', fontWeight: 'bold' }}>
           {idEmEdicao ? 'Atualizar' : 'Agendar'}
         </button>
         {idEmEdicao && (
@@ -325,15 +368,34 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
         <h3 style={{ margin: 0, color: 'var(--text-principal)' }}>🗓️ Planner</h3>
         
         <div style={{ display: 'flex', alignItems: 'center', gap: '15px', background: 'var(--bg-input)', padding: '5px 15px', borderRadius: '20px', border: '1px solid var(--borda)' }}>
-          <button onClick={() => mudarDia(-1)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: 'var(--text-principal)' }}>◀</button>
+          <button type="button" onClick={() => mudarDia(-1)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: 'var(--text-principal)' }}>◀</button>
           
-          <div style={{ textAlign: 'center', minWidth: '80px' }}>
-            <span style={{ display: 'block', fontSize: '16px', fontWeight: 'bold', color: corDoTitulo }}>
+          {/* Seletor Rápido de Data Integrado */}
+          <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <span style={{ fontSize: '12px', fontWeight: 'bold', color: corDoTitulo }}>
               {tituloDaData}
             </span>
+            <input 
+              type="date" 
+              value={dataVisaoDiaria}
+              onChange={e => {
+                if(e.target.value) setDataVisaoDiaria(e.target.value);
+              }}
+              style={{
+                border: 'none',
+                background: 'transparent',
+                color: 'var(--text-principal)',
+                fontSize: '15px',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                outline: 'none',
+                padding: '2px'
+              }}
+              title="Pular para uma data específica"
+            />
           </div>
 
-          <button onClick={() => mudarDia(1)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: 'var(--text-principal)' }}>▶</button>
+          <button type="button" onClick={() => mudarDia(1)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: 'var(--text-principal)' }}>▶</button>
         </div>
       </div>
 
@@ -346,7 +408,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
             return (
               <div key={agenda.id} style={{ display: 'flex', backgroundColor: 'var(--bg-card-item)', border: '1px solid var(--borda)', borderRadius: '6px', overflow: 'hidden', color: 'var(--text-principal)' }}>
                 
-                <div style={{ backgroundColor: agenda.status === 'pendente' ? '#34495e' : '#27ae60', color: 'white', padding: agenda.status === 'pendente' ? '20px': '5px', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '60px', fontWeight: 'bold', fontSize: '18px' }}>
+                <div style={{ backgroundColor: agenda.status === 'pendente' ? '#34495e' : '#27ae60', color: 'white', padding: '20px 5px', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '60px', fontWeight: 'bold', fontSize: '18px' }}>
                   {horaAgendamento}
                 </div>
                 
