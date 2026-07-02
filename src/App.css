@@ -1,0 +1,45 @@
+/* src/index.css */
+
+:root {
+  /* MODO CLARO (Padrão) */
+  --bg-fundo: #f5f6fa;
+  --bg-menu: #2c3e50;
+  --bg-card: #ffffff;
+  --bg-card-destaque: #f1f2f6;
+  --bg-card-item: #fafafa;
+  --text-principal: #2c3e50;
+  --text-secundario: #666666;
+  --borda: #dddddd;
+  --borda-clara: #eeeeee;
+  --bg-input: #ffffff;
+}
+
+[data-theme="dark"] {
+  /* MODO ESCURO */
+  --bg-fundo: #121212;
+  --bg-menu: #1a1a24;
+  --bg-card: #1e1e1e;
+  --bg-card-destaque: #252525;
+  --bg-card-item: #2c2c2c;
+  --text-principal: #ecf0f1;
+  --text-secundario: #aaaaaa;
+  --borda: #444444;
+  --borda-clara: #333333;
+  --bg-input: #2c2c2c;
+}
+
+body {
+  background-color: var(--bg-fundo);
+  color: var(--text-principal);
+  margin: 0;
+  font-family: sans-serif;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Garante que os formulários mudem de cor sozinhos */
+input, select, textarea {
+  background-color: var(--bg-input);
+  color: var(--text-principal);
+  border: 1px solid var(--borda);
+  color-scheme: light dark;
+} 
