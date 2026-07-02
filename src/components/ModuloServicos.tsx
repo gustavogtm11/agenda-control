@@ -4,8 +4,15 @@ import { useState, useEffect } from 'react';
 import { db } from '../config/firebase';
 import { collection, addDoc, query, where, onSnapshot, doc, deleteDoc, updateDoc } from 'firebase/firestore';
 import '../App.css'
+
 interface ModuloServicosProps {
   perfil: { companyId: string } | null;
+}
+
+// NOVA ESTRUTURA: Um item de consumo tem o nome do material e a quantidade
+interface ConsumoMaterial {
+  nomeMaterial: string;
+  quantidade: number;
 }
 
 interface Servico {
@@ -13,8 +20,7 @@ interface Servico {
   nome: string;
   preco: number;
   duracaoMinutos: number;
-  materialConsumido?: string; 
-  quantidadeMaterial?: number; 
+  materiaisConsumidos?: ConsumoMaterial[]; // Agora é uma lista!
 }
 
 interface ProdutoEstoque {
@@ -31,13 +37,14 @@ export function ModuloServicos({ perfil }: ModuloServicosProps) {
   const [nome, setNome] = useState('');
   const [preco, setPreco] = useState<number | ''>('');
   const [duracao, setDuracao] = useState<number | ''>(30);
-  const [materialConsumido, setMaterialConsumido] = useState<string>('');
-  const [quantidadeMaterial, setQuantidadeMaterial] = useState<number | ''>('');
+  
+  // ESTADO DA LISTA DE MATERIAIS CONSUMIDOS
+  // Começamos com uma lista vazia. O usuário clica no "+" para adicionar itens.
+  const [materiaisConsumidos, setMateriaisConsumidos] = useState<ConsumoMaterial[]>([]);
 
   useEffect(() => {
     if (!perfil?.companyId) return;
 
-    // Buscar serviços
     const qServicos = query(collection(db, 'servicos'), where('companyId', '==', perfil.companyId));
     
     const unsubscribeServicos = onSnapshot(qServicos, (snapshot) => {
@@ -49,15 +56,13 @@ export function ModuloServicos({ perfil }: ModuloServicosProps) {
           nome: dados.nome,
           preco: dados.preco,
           duracaoMinutos: dados.duracaoMinutos || 30,
-          materialConsumido: dados.materialConsumido,
-          quantidadeMaterial: dados.quantidadeMaterial
+          materiaisConsumidos: dados.materiaisConsumidos || [] // Carrega a lista se existir
         });
       });
       lista.sort((a, b) => a.nome.localeCompare(b.nome));
       setServicos(lista);
     });
 
-    // Buscar itens do estoque para popular o select
     const qEstoque = query(collection(db, 'estoque'), where('companyId', '==', perfil.companyId));
     const unsubscribeEstoque = onSnapshot(qEstoque, (snapshot) => {
       const listaEstoque: ProdutoEstoque[] = [];
@@ -76,6 +81,28 @@ export function ModuloServicos({ perfil }: ModuloServicosProps) {
     };
   }, [perfil?.companyId]);
 
+  // FUNÇÕES PARA GERENCIAR A LISTA DE MATERIAIS NO FORMULÁRIO
+
+  // Adiciona uma linha em branco na lista
+  const adicionarMaterial = () => {
+    setMateriaisConsumidos([...materiaisConsumidos, { nomeMaterial: '', quantidade: 1 }]);
+  };
+
+  // Remove uma linha específica
+  const removerMaterial = (index: number) => {
+    const novaLista = [...materiaisConsumidos];
+    novaLista.splice(index, 1);
+    setMateriaisConsumidos(novaLista);
+  };
+
+  // Atualiza os dados de uma linha específica (quando o usuário escolhe o material ou digita a quantidade)
+  const atualizarMaterial = (index: number, campo: keyof ConsumoMaterial, valor: any) => {
+    const novaLista = [...materiaisConsumidos];
+    novaLista[index] = { ...novaLista[index], [campo]: valor };
+    setMateriaisConsumidos(novaLista);
+  };
+
+
   async function lidarComCadastro(e: React.FormEvent) {
     e.preventDefault();
 
@@ -84,21 +111,21 @@ export function ModuloServicos({ perfil }: ModuloServicosProps) {
       return;
     }
 
+    // Validação extra: garantir que as linhas de material estejam preenchidas
+    const temMaterialInvalido = materiaisConsumidos.some(m => !m.nomeMaterial || m.quantidade <= 0);
+    if (temMaterialInvalido) {
+        alert("Preencha corretamente os materiais consumidos ou remova a linha.");
+        return;
+    }
+
     try {
       const dadosServico: any = {
         nome: nome.trim(),
         preco: Number(preco),
         duracaoMinutos: Number(duracao),
-        companyId: perfil?.companyId
+        companyId: perfil?.companyId,
+        materiaisConsumidos: materiaisConsumidos // Salvamos o array completo!
       };
-
-      if (materialConsumido) {
-        dadosServico.materialConsumido = materialConsumido;
-        dadosServico.quantidadeMaterial = quantidadeMaterial ? Number(quantidadeMaterial) : 1;
-      } else {
-         dadosServico.materialConsumido = null;
-         dadosServico.quantidadeMaterial = 0;
-      }
 
       if (idEmEdicao) {
         await updateDoc(doc(db, 'servicos', idEmEdicao), dadosServico);
@@ -120,8 +147,8 @@ export function ModuloServicos({ perfil }: ModuloServicosProps) {
     setNome(servico.nome);
     setPreco(servico.preco);
     setDuracao(servico.duracaoMinutos);
-    setMaterialConsumido(servico.materialConsumido || '');
-    setQuantidadeMaterial(servico.quantidadeMaterial || '');
+    // Carrega a lista de materiais consumidos (se não houver, garante que é array vazio)
+    setMateriaisConsumidos(servico.materiaisConsumidos || []);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -130,8 +157,7 @@ export function ModuloServicos({ perfil }: ModuloServicosProps) {
     setNome('');
     setPreco('');
     setDuracao(30);
-    setMaterialConsumido('');
-    setQuantidadeMaterial('');
+    setMateriaisConsumidos([]); // Zera a lista ao limpar
   }
 
   async function excluirServico(id: string, nomeServico: string) {
@@ -144,7 +170,6 @@ export function ModuloServicos({ perfil }: ModuloServicosProps) {
     }
   }
 
-  // Estilo padronizado para os inputs ficarem bonitos
   const inputStyle = {
     padding: '12px',
     borderRadius: '6px',
@@ -176,66 +201,72 @@ export function ModuloServicos({ perfil }: ModuloServicosProps) {
         <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
           <div style={{ flex: '1 1 250px' }}>
             <label style={labelStyle}>Nome do Serviço *</label>
-            <input
-              type="text"
-              placeholder="Ex: Corte Degrade"
-              value={nome}
-              onChange={(e) => setNome(e.target.value)}
-              style={inputStyle}
-            />
+            <input type="text" placeholder="Ex: Corte Degrade" value={nome} onChange={(e) => setNome(e.target.value)} style={inputStyle} />
           </div>
           
           <div style={{ flex: '1 1 120px' }}>
             <label style={labelStyle}>Preço (R$) *</label>
-            <input
-              type="number"
-              step="0.01"
-              placeholder="0.00"
-              value={preco}
-              onChange={(e) => setPreco(Number(e.target.value))}
-              style={inputStyle}
-            />
+            <input type="number" step="0.01" placeholder="0.00" value={preco} onChange={(e) => setPreco(Number(e.target.value))} style={inputStyle} />
           </div>
 
           <div style={{ flex: '1 1 120px' }}>
             <label style={labelStyle}>Duração (min) *</label>
-            <input
-              type="number"
-              placeholder="30"
-              value={duracao}
-              onChange={(e) => setDuracao(Number(e.target.value))}
-              style={inputStyle}
-            />
+            <input type="number" placeholder="30" value={duracao} onChange={(e) => setDuracao(Number(e.target.value))} style={inputStyle} />
           </div>
         </div>
 
-        {/* SEGUNDA LINHA: Consumo de Material */}
-        <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', backgroundColor: 'var(--bg-card-item)', padding: '15px', borderRadius: '6px', border: '1px solid var(--borda)' }}>
-          <div style={{ flex: '1 1 250px' }}>
-            <label style={labelStyle}>Material Consumido (Opcional)</label>
-            <select 
-              value={materialConsumido} 
-              onChange={(e) => setMaterialConsumido(e.target.value)}
-              style={inputStyle}
-            >
-              <option value="">-- Nenhum material --</option>
-              {produtosEstoque.map(produto => (
-                <option key={produto.id} value={produto.nome}>{produto.nome}</option>
-              ))}
-            </select>
+        {/* SEGUNDA SEÇÃO: Lista Dinâmica de Materiais Consumidos */}
+        <div style={{ backgroundColor: 'var(--bg-card-item)', padding: '15px', borderRadius: '6px', border: '1px solid var(--borda)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+              <label style={{ ...labelStyle, marginBottom: 0 }}>Materiais Consumidos (Opcional)</label>
+              
+              {/* BOTÃO + PARA ADICIONAR MATERIAL */}
+              <button 
+                type="button" 
+                onClick={adicionarMaterial} 
+                style={{ background: '#3498db', color: 'white', border: 'none', borderRadius: '4px', padding: '5px 10px', cursor: 'pointer', fontWeight: 'bold' }}
+              >
+                + Adicionar Material
+              </button>
           </div>
 
-          {materialConsumido && (
-            <div style={{ flex: '1 1 120px' }}>
-              <label style={labelStyle}>Qtd. Consumida *</label>
-              <input
-                type="number"
-                placeholder="Ex: 1"
-                value={quantidadeMaterial}
-                onChange={(e) => setQuantidadeMaterial(Number(e.target.value))}
-                style={inputStyle}
-              />
-            </div>
+          {/* LISTA DE CAMPOS (RENDERIZADA BASEADA NO ARRAY) */}
+          {materiaisConsumidos.length === 0 ? (
+              <p style={{ color: 'var(--text-secundario)', fontSize: '13px', fontStyle: 'italic' }}>Nenhum material vinculado a este serviço.</p>
+          ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {materiaisConsumidos.map((item, index) => (
+                      <div key={index} style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                          <select 
+                            value={item.nomeMaterial} 
+                            onChange={(e) => atualizarMaterial(index, 'nomeMaterial', e.target.value)}
+                            style={{ ...inputStyle, flex: 2 }}
+                          >
+                            <option value="">Selecione o material...</option>
+                            {produtosEstoque.map(produto => (
+                              <option key={produto.id} value={produto.nome}>{produto.nome}</option>
+                            ))}
+                          </select>
+                          
+                          <input
+                            type="number"
+                            placeholder="Qtd"
+                            value={item.quantidade}
+                            onChange={(e) => atualizarMaterial(index, 'quantidade', Number(e.target.value))}
+                            style={{ ...inputStyle, flex: 1 }}
+                          />
+
+                          <button 
+                            type="button" 
+                            onClick={() => removerMaterial(index)}
+                            style={{ background: '#e74c3c', color: 'white', border: 'none', borderRadius: '4px', padding: '10px', cursor: 'pointer' }}
+                            title="Remover material"
+                          >
+                            🗑️
+                          </button>
+                      </div>
+                  ))}
+              </div>
           )}
         </div>
 
@@ -266,10 +297,15 @@ export function ModuloServicos({ perfil }: ModuloServicosProps) {
                 <p style={{ margin: '0 0 5px 0', color: '#27ae60', fontWeight: 'bold', fontSize: '16px' }}>R$ {servico.preco.toFixed(2)}</p>
                 <p style={{ margin: '0 0 10px 0', color: 'var(--text-secundario)', fontSize: '14px' }}>⏱️ {servico.duracaoMinutos} minutos</p>
                 
-                {servico.materialConsumido && (
+                {/* MOSTRA A LISTA DE MATERIAIS NO CARD DO CATÁLOGO */}
+                {servico.materiaisConsumidos && servico.materiaisConsumidos.length > 0 && (
                   <div style={{ backgroundColor: 'var(--bg-card)', padding: '8px', borderRadius: '4px', border: '1px dashed var(--borda)', fontSize: '13px' }}>
-                    <span style={{ color: 'var(--text-secundario)' }}>📦 Consome: </span>
-                    <strong>{servico.quantidadeMaterial}x {servico.materialConsumido}</strong>
+                    <span style={{ color: 'var(--text-secundario)', display: 'block', marginBottom: '5px' }}>📦 Consome: </span>
+                    <ul style={{ margin: 0, paddingLeft: '20px' }}>
+                        {servico.materiaisConsumidos.map((mat, i) => (
+                            <li key={i}><strong>{mat.quantidade}x {mat.nomeMaterial}</strong></li>
+                        ))}
+                    </ul>
                   </div>
                 )}
               </div>
