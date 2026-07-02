@@ -186,7 +186,7 @@ export function ModuloServicos({ perfil }: ModuloServicosProps) {
     border: '1px solid var(--borda)',
     backgroundColor: 'var(--bg-input)',
     color: 'var(--text-principal)',
-    fontSize: '14px',
+    fontSize: '16px',
     width: '100%',
     boxSizing: 'border-box' as const
   };
@@ -294,7 +294,7 @@ export function ModuloServicos({ perfil }: ModuloServicosProps) {
                 <p style={{ margin: '0 0 10px 0', color: 'var(--text-secundario)', fontSize: '14px' }}>⏱️ {servico.duracaoMinutos} minutos</p>
                 
                 {servico.materiaisConsumidos && servico.materiaisConsumidos.length > 0 && (
-                  <div style={{ backgroundColor: 'var(--bg-card)', padding: '8px', borderRadius: '4px', border: '1px dashed var(--borda)', fontSize: '13px' }}>
+                  <div style={{ backgroundColor: 'var(--bg-card)', padding: '8px', borderRadius: '4px', border: '1px dashed var(--borda)', fontSize: '16px' }}>
                     <span style={{ color: 'var(--text-secundario)', display: 'block', marginBottom: '5px' }}>📦 Consome: </span>
                     <ul style={{ margin: 0, paddingLeft: '20px' }}>
                         {servico.materiaisConsumidos.map((mat, i) => (

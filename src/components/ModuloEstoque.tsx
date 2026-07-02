@@ -137,7 +137,7 @@ export function ModuloEstoque({ perfil }: ModuloEstoqueProps) {
     border: '1px solid var(--borda)',
     backgroundColor: 'var(--bg-input)',
     color: 'var(--text-principal)',
-    fontSize: '14px',
+    fontSize: '16px',
     width: '100%',
     boxSizing: 'border-box' as const
   };

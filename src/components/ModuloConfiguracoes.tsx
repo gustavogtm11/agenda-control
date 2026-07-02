@@ -102,7 +102,7 @@ borderRadius: '6px',
 border: '1px solid var(--borda)',
 backgroundColor: 'var(--bg-input)',
 color: 'var(--text-principal)',
-fontSize: '14px',
+fontSize: '16px',
 outline: 'none'
 };
 

@@ -42,4 +42,5 @@ input, select, textarea {
   color: var(--text-principal);
   border: 1px solid var(--borda);
   color-scheme: light dark;
+  font-size: 16px;
 } 

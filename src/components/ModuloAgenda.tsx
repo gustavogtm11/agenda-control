@@ -448,7 +448,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     borderRadius: '6px',
     border: '1px solid var(--borda)',
     color: 'var(--text-principal)',
-    fontSize: '14px',
+    fontSize: '16px',
     boxSizing: 'border-box' as const
   };
 
