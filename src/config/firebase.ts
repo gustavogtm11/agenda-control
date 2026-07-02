@@ -2,34 +2,30 @@
 
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
-import { getFirestore } from "firebase/firestore"; 
+import {initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore"; 
 
 // Cole aqui o objeto que você copiou lá do site do Firebase!
 const firebaseConfig = {
-  apiKey: "AIzaSyDz-RJduYdk4pOHCkZEQ-ffLpuWAtxKR34",
-  authDomain: "agendamentos-saas.firebaseapp.com",
-  projectId: "agendamentos-saas",
-  storageBucket: "agendamentos-saas.firebasestorage.app",
-  messagingSenderId: "26175655958",
-  appId: "1:26175655958:web:b44192eb0718a8ff6fa537"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
 // Aqui nós ligamos o Firebase
 const app = initializeApp(firebaseConfig);
 
 // Exportamos as ferramentas de Login para usar na nossa tela
-export const auth = getAuth(app);
-export const db = getFirestore(app);
 
 
-// enableIndexedDbPersistence(db).catch((err) => {
-//     if (err.code == 'failed-precondition') {
-//         console.warn("Múltiplas abas abertas, persistência só funciona em uma.");
-//     } else if (err.code == 'unimplemented') {
-//         console.warn("Browser não suporta persistência.");
-//     }
-// });
-
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  })
+});
+    
+    export const auth = getAuth(app);
 
 export const provedorGoogle = new GoogleAuthProvider();
 provedorGoogle.addScope('https://www.googleapis.com/auth/calendar.events');

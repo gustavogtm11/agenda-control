@@ -1,78 +1,176 @@
 // src/components/ModuloConfiguracoes.tsx
+
 import { useState, useEffect } from 'react';
 import { db } from '../config/firebase';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 
-interface Props { perfil: { companyId: string } | null; }
+interface ModuloConfiguracoesProps {
+perfil: { companyId: string } | null;
+}
 
-export function ModuloConfiguracoes({ perfil }: Props) {
-const [linkAtivo, setLinkAtivo] = useState(false);
-const [copiado, setCopiado] = useState(false);
-const [carregando, setCarregando] = useState(true);
+type DiaSemana = 'domingo' | 'segunda' | 'terca' | 'quarta' | 'quinta' | 'sexta' | 'sabado';
+
+interface HorarioDia {
+ativo: boolean;
+inicio: string;
+fim: string;
+}
+
+type HorariosFuncionamento = Record<DiaSemana, HorarioDia>;
+
+const diasDaSemana: { key: DiaSemana; label: string }[] = [
+{ key: 'segunda', label: 'Segunda-feira' },
+{ key: 'terca', label: 'Terça-feira' },
+{ key: 'quarta', label: 'Quarta-feira' },
+{ key: 'quinta', label: 'Quinta-feira' },
+{ key: 'sexta', label: 'Sexta-feira' },
+{ key: 'sabado', label: 'Sábado' },
+{ key: 'domingo', label: 'Domingo' },
+];
+
+const horariosPadrao: HorariosFuncionamento = {
+domingo: { ativo: false, inicio: '08:00', fim: '12:00' },
+segunda: { ativo: true, inicio: '08:00', fim: '17:00' },
+terca: { ativo: true, inicio: '08:00', fim: '17:00' },
+quarta: { ativo: true, inicio: '08:00', fim: '17:00' },
+quinta: { ativo: true, inicio: '08:00', fim: '17:00' },
+sexta: { ativo: true, inicio: '08:00', fim: '17:00' },
+sabado: { ativo: true, inicio: '08:00', fim: '12:00' },
+};
+
+export function ModuloConfiguracoes({ perfil }: ModuloConfiguracoesProps) {
+const [horarios, setHorarios] = useState<HorariosFuncionamento>(horariosPadrao);
+const [salvando, setSalvando] = useState(false);
 
 useEffect(() => {
 if (!perfil?.companyId) return;
-const buscarConfig = async () => {
-    const snap = await getDoc(doc(db, 'empresas', perfil.companyId));
-    if (snap.exists()) setLinkAtivo(snap.data().linkPublicoAtivo || false);
-    setCarregando(false);
-};
-buscarConfig();
-}, [perfil]);
 
-async function alternarLink() {
-if (!perfil?.companyId) return;
-const novoStatus = !linkAtivo;
-setLinkAtivo(novoStatus);
-await updateDoc(doc(db, 'empresas', perfil.companyId), { linkPublicoAtivo: novoStatus });
+async function carregarConfiguracoes() {
+    try {
+    const empresaRef = doc(db, 'empresas', perfil!.companyId);
+    const empresaSnap = await getDoc(empresaRef);
+
+    if (empresaSnap.exists() && empresaSnap.data().horariosFuncionamento) {
+        setHorarios(empresaSnap.data().horariosFuncionamento);
+    }
+    } catch (error) {
+    console.error("Erro ao carregar configurações:", error);
+    }
 }
 
-const linkPublico = `${window.location.origin}/agendar/${perfil?.companyId}`;
+carregarConfiguracoes();
+}, [perfil?.companyId]);
 
-const copiarLink = () => {
-navigator.clipboard.writeText(linkPublico);
-setCopiado(true);
-setTimeout(() => setCopiado(false), 2000);
+const handleChange = (dia: DiaSemana, campo: keyof HorarioDia, valor: any) => {
+setHorarios(prev => ({
+    ...prev,
+    [dia]: {
+    ...prev[dia],
+    [campo]: valor
+    }
+}));
+};
+
+async function salvarConfiguracoes(e: React.FormEvent) {
+e.preventDefault();
+if (!perfil?.companyId) return;
+
+setSalvando(true);
+try {
+    const empresaRef = doc(db, 'empresas', perfil.companyId);
+    const empresaSnap = await getDoc(empresaRef);
+
+    if (empresaSnap.exists()) {
+    await updateDoc(empresaRef, { horariosFuncionamento: horarios });
+    } else {
+    // Caso o documento da empresa não exista por algum motivo, ele cria
+    await setDoc(empresaRef, { horariosFuncionamento: horarios }, { merge: true });
+    }
+
+    alert("Configurações de horário salvas com sucesso!");
+} catch (error) {
+    console.error("Erro ao salvar:", error);
+    alert("Erro ao salvar configurações.");
+} finally {
+    setSalvando(false);
+}
+}
+
+const inputStyle = {
+padding: '10px',
+borderRadius: '6px',
+border: '1px solid var(--borda)',
+backgroundColor: 'var(--bg-input)',
+color: 'var(--text-principal)',
+fontSize: '14px',
+outline: 'none'
 };
 
 return (
-<div style={{ background: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #ddd' }}>
-    <h3 style={{ marginTop: 0 }}>⚙️ Configurações</h3>
+<div style={{ background: 'var(--bg-card)', padding: '20px', borderRadius: '8px', border: '1px solid var(--borda)', color: 'var(--text-principal)', marginTop: '20px' }}>
+    <h3 style={{ marginTop: 0 }}>⚙️ Configurações do Sistema</h3>
     
-    <div style={{ padding: '20px', border: '1px solid #eee', borderRadius: '8px', marginTop: '20px', background: '#f9f9f9' }}>
-    <h4>Portal de Auto-Agendamento</h4>
-    <p style={{ color: '#666' }}>
-        Ative para gerar um link exclusivo onde seus clientes podem se agendar sozinhos.
-    </p>
-    
-    {carregando ? <p>Carregando...</p> : (
-        <div style={{ marginTop: '20px' }}>
-        <button 
-            onClick={alternarLink}
-            style={{ padding: '10px 20px', backgroundColor: linkAtivo ? '#e74c3c' : '#27ae60', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', marginBottom: '15px' }}
-        >
-            {linkAtivo ? 'Desativar Link Público' : 'Ativar Link Público'}
-        </button>
+    <form onSubmit={salvarConfiguracoes}>
+    <div style={{ backgroundColor: 'var(--bg-card-item)', padding: '20px', borderRadius: '8px', border: '1px solid var(--borda)', marginBottom: '20px' }}>
+        <h4 style={{ margin: '0 0 15px 0' }}>🕒 Horários de Atendimento</h4>
+        <p style={{ fontSize: '13px', color: 'var(--text-secundario)', marginBottom: '20px' }}>
+        Defina os dias e horários em que o estabelecimento está aberto. O horário de fim representa o término do último serviço.
+        </p>
 
-        {linkAtivo && (
-            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-            <input 
-                type="text" 
-                readOnly 
-                value={linkPublico} 
-                style={{ padding: '10px', borderRadius: '4px', border: '1px solid #ccc', width: '100%', maxWidth: '400px' }} 
-            />
-            <button 
-                onClick={copiarLink}
-                style={{ padding: '10px 15px', cursor: 'pointer', borderRadius: '4px', border: 'none', background: copiado ? '#27ae60' : '#3498db', color: 'white', fontWeight: 'bold' }}
-            >
-                {copiado ? '✅ Copiado!' : '📋 Copiar Link'}
-            </button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+        {diasDaSemana.map(({ key, label }) => {
+            const configDia = horarios[key];
+
+            return (
+            <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap', paddingBottom: '15px', borderBottom: '1px dashed var(--borda)' }}>
+                
+                {/* Checkbox de Ativo/Inativo */}
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', minWidth: '150px', fontWeight: configDia.ativo ? 'bold' : 'normal', color: configDia.ativo ? 'var(--text-principal)' : 'var(--text-secundario)' }}>
+                <input 
+                    type="checkbox" 
+                    checked={configDia.ativo}
+                    onChange={(e) => handleChange(key, 'ativo', e.target.checked)}
+                    style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                />
+                {label}
+                </label>
+
+                {/* Campos de Horário */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', opacity: configDia.ativo ? 1 : 0.4, pointerEvents: configDia.ativo ? 'auto' : 'none' }}>
+                <input 
+                    type="time" 
+                    value={configDia.inicio}
+                    onChange={(e) => handleChange(key, 'inicio', e.target.value)}
+                    style={inputStyle}
+                    required={configDia.ativo}
+                />
+                <span style={{ color: 'var(--text-secundario)', fontWeight: 'bold' }}>até</span>
+                <input 
+                    type="time" 
+                    value={configDia.fim}
+                    onChange={(e) => handleChange(key, 'fim', e.target.value)}
+                    style={inputStyle}
+                    required={configDia.ativo}
+                />
+                </div>
+
+                {!configDia.ativo && (
+                <span style={{ fontSize: '13px', color: '#e74c3c', fontStyle: 'italic' }}>Fechado</span>
+                )}
             </div>
-        )}
+            );
+        })}
         </div>
-    )}
     </div>
+
+    <button 
+        type="submit" 
+        disabled={salvando}
+        style={{ padding: '12px 24px', backgroundColor: '#2980b9', color: 'white', border: 'none', cursor: salvando ? 'not-allowed' : 'pointer', borderRadius: '6px', fontWeight: 'bold', fontSize: '15px', opacity: salvando ? 0.7 : 1 }}
+    >
+        {salvando ? 'Salvando...' : 'Salvar Configurações'}
+    </button>
+    </form>
 </div>
 );
 }

@@ -10,6 +10,7 @@ import { ModuloEstoque } from '../components/ModuloEstoque';
 import { ModuloServicos } from '../components/ModuloServicos';
 import { ModuloFuncionarios } from '../components/ModuloFuncionarios';
 import { ModuloSuperAdmin } from '../components/ModuloSuperAdmin';
+import { ModuloConfiguracoes } from '../components/ModuloConfiguracoes';
 
 interface PainelProps {
   perfil: { nome: string; companyId: string; role: string; } | null;
@@ -221,6 +222,7 @@ export function Painel({ perfil }: PainelProps) {
           {abaAtiva === 'servicos' && perfil?.role === 'chefe' && <ModuloServicos perfil={perfil} />}
           {abaAtiva === 'funcionarios' && perfil?.role === 'chefe' && <ModuloFuncionarios perfil={perfil} />}
           {abaAtiva === 'admin' && perfil?.role === 'super_admin' && <ModuloSuperAdmin />}
+          {abaAtiva === 'config' && perfil?.role === 'chefe' && <ModuloConfiguracoes perfil={perfil} />}
         </div>
       </main>
     </div>
