@@ -9,10 +9,10 @@ interface ModuloServicosProps {
   perfil: { companyId: string } | null;
 }
 
-// NOVA ESTRUTURA: Um item de consumo tem o nome do material e a quantidade
-interface ConsumoMaterial {
+// O estado no formulário agora trata a quantidade como string para facilitar a digitação
+interface ConsumoMaterialForm {
   nomeMaterial: string;
-  quantidade: number;
+  quantidade: string; 
 }
 
 interface Servico {
@@ -20,7 +20,7 @@ interface Servico {
   nome: string;
   preco: number;
   duracaoMinutos: number;
-  materiaisConsumidos?: ConsumoMaterial[]; // Agora é uma lista!
+  materiaisConsumidos?: ConsumoMaterialForm[]; 
 }
 
 interface ProdutoEstoque {
@@ -35,12 +35,11 @@ export function ModuloServicos({ perfil }: ModuloServicosProps) {
   // Estados do Formulário
   const [idEmEdicao, setIdEmEdicao] = useState<string | null>(null);
   const [nome, setNome] = useState('');
-  const [preco, setPreco] = useState<number | ''>('');
-  const [duracao, setDuracao] = useState<number | ''>(30);
+  const [preco, setPreco] = useState<string>(''); // string para permitir decimais fluídos
+  const [duracao, setDuracao] = useState<string>('30');
   
-  // ESTADO DA LISTA DE MATERIAIS CONSUMIDOS
-  // Começamos com uma lista vazia. O usuário clica no "+" para adicionar itens.
-  const [materiaisConsumidos, setMateriaisConsumidos] = useState<ConsumoMaterial[]>([]);
+  // Lista de materiais mantida como string para não travar o "."
+  const [materiaisConsumidos, setMateriaisConsumidos] = useState<ConsumoMaterialForm[]>([]);
 
   useEffect(() => {
     if (!perfil?.companyId) return;
@@ -51,12 +50,19 @@ export function ModuloServicos({ perfil }: ModuloServicosProps) {
       const lista: Servico[] = [];
       snapshot.forEach(doc => {
         const dados = doc.data();
+        
+        // Mapeamos o que vem do banco (número) para string, para a tela exibir certinho
+        const materiaisDoBanco = (dados.materiaisConsumidos || []).map((m: any) => ({
+            nomeMaterial: m.nomeMaterial,
+            quantidade: String(m.quantidade)
+        }));
+
         lista.push({
           id: doc.id,
           nome: dados.nome,
           preco: dados.preco,
           duracaoMinutos: dados.duracaoMinutos || 30,
-          materiaisConsumidos: dados.materiaisConsumidos || [] // Carrega a lista se existir
+          materiaisConsumidos: materiaisDoBanco
         });
       });
       lista.sort((a, b) => a.nome.localeCompare(b.nome));
@@ -81,22 +87,18 @@ export function ModuloServicos({ perfil }: ModuloServicosProps) {
     };
   }, [perfil?.companyId]);
 
-  // FUNÇÕES PARA GERENCIAR A LISTA DE MATERIAIS NO FORMULÁRIO
 
-  // Adiciona uma linha em branco na lista
   const adicionarMaterial = () => {
-    setMateriaisConsumidos([...materiaisConsumidos, { nomeMaterial: '', quantidade: 1 }]);
+    setMateriaisConsumidos([...materiaisConsumidos, { nomeMaterial: '', quantidade: '' }]);
   };
 
-  // Remove uma linha específica
   const removerMaterial = (index: number) => {
     const novaLista = [...materiaisConsumidos];
     novaLista.splice(index, 1);
     setMateriaisConsumidos(novaLista);
   };
 
-  // Atualiza os dados de uma linha específica (quando o usuário escolhe o material ou digita a quantidade)
-  const atualizarMaterial = (index: number, campo: keyof ConsumoMaterial, valor: any) => {
+  const atualizarMaterial = (index: number, campo: keyof ConsumoMaterialForm, valor: string) => {
     const novaLista = [...materiaisConsumidos];
     novaLista[index] = { ...novaLista[index], [campo]: valor };
     setMateriaisConsumidos(novaLista);
@@ -106,25 +108,34 @@ export function ModuloServicos({ perfil }: ModuloServicosProps) {
   async function lidarComCadastro(e: React.FormEvent) {
     e.preventDefault();
 
-    if (!nome || preco === '' || Number(preco) < 0 || duracao === '' || Number(duracao) <= 0) {
+    const precoNum = parseFloat(preco);
+    const duracaoNum = parseInt(duracao);
+
+    if (!nome || isNaN(precoNum) || precoNum < 0 || isNaN(duracaoNum) || duracaoNum <= 0) {
       alert('Preencha todos os campos obrigatórios (Nome, Preço e Duração) com valores válidos.');
       return;
     }
 
-    // Validação extra: garantir que as linhas de material estejam preenchidas
-    const temMaterialInvalido = materiaisConsumidos.some(m => !m.nomeMaterial || m.quantidade <= 0);
+    // Validação extra e conversão da quantidade de string para número
+    const temMaterialInvalido = materiaisConsumidos.some(m => !m.nomeMaterial || m.quantidade === '' || parseFloat(m.quantidade) <= 0);
     if (temMaterialInvalido) {
-        alert("Preencha corretamente os materiais consumidos ou remova a linha.");
+        alert("Preencha corretamente os materiais consumidos (com quantidade maior que 0) ou remova a linha.");
         return;
     }
+
+    // Prepara o pacote de materiais para o banco de dados (convertendo as strings em números puros)
+    const materiaisParaDB = materiaisConsumidos.map(m => ({
+        nomeMaterial: m.nomeMaterial,
+        quantidade: parseFloat(m.quantidade)
+    }));
 
     try {
       const dadosServico: any = {
         nome: nome.trim(),
-        preco: Number(preco),
-        duracaoMinutos: Number(duracao),
+        preco: precoNum,
+        duracaoMinutos: duracaoNum,
         companyId: perfil?.companyId,
-        materiaisConsumidos: materiaisConsumidos // Salvamos o array completo!
+        materiaisConsumidos: materiaisParaDB // Envia os números processados
       };
 
       if (idEmEdicao) {
@@ -145,9 +156,8 @@ export function ModuloServicos({ perfil }: ModuloServicosProps) {
   function prepararEdicao(servico: Servico) {
     setIdEmEdicao(servico.id);
     setNome(servico.nome);
-    setPreco(servico.preco);
-    setDuracao(servico.duracaoMinutos);
-    // Carrega a lista de materiais consumidos (se não houver, garante que é array vazio)
+    setPreco(String(servico.preco));
+    setDuracao(String(servico.duracaoMinutos));
     setMateriaisConsumidos(servico.materiaisConsumidos || []);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -156,8 +166,8 @@ export function ModuloServicos({ perfil }: ModuloServicosProps) {
     setIdEmEdicao(null);
     setNome('');
     setPreco('');
-    setDuracao(30);
-    setMateriaisConsumidos([]); // Zera a lista ao limpar
+    setDuracao('30');
+    setMateriaisConsumidos([]); 
   }
 
   async function excluirServico(id: string, nomeServico: string) {
@@ -197,7 +207,6 @@ export function ModuloServicos({ perfil }: ModuloServicosProps) {
 
       <form onSubmit={lidarComCadastro} style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginBottom: '30px', paddingBottom: '25px', borderBottom: '2px dashed var(--borda)' }}>
         
-        {/* PRIMEIRA LINHA: Dados Básicos */}
         <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
           <div style={{ flex: '1 1 250px' }}>
             <label style={labelStyle}>Nome do Serviço *</label>
@@ -206,31 +215,24 @@ export function ModuloServicos({ perfil }: ModuloServicosProps) {
           
           <div style={{ flex: '1 1 120px' }}>
             <label style={labelStyle}>Preço (R$) *</label>
-            <input type="number" step="0.01" placeholder="0.00" value={preco} onChange={(e) => setPreco(Number(e.target.value))} style={inputStyle} />
+            <input type="number" step="0.01" placeholder="0.00" value={preco} onChange={(e) => setPreco(e.target.value)} style={inputStyle} />
           </div>
 
           <div style={{ flex: '1 1 120px' }}>
             <label style={labelStyle}>Duração (min) *</label>
-            <input type="number" placeholder="30" value={duracao} onChange={(e) => setDuracao(Number(e.target.value))} style={inputStyle} />
+            <input type="number" placeholder="30" value={duracao} onChange={(e) => setDuracao(e.target.value)} style={inputStyle} />
           </div>
         </div>
 
-        {/* SEGUNDA SEÇÃO: Lista Dinâmica de Materiais Consumidos */}
+        {/* SEÇÃO DE MATERIAIS COM ARRAYS */}
         <div style={{ backgroundColor: 'var(--bg-card-item)', padding: '15px', borderRadius: '6px', border: '1px solid var(--borda)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
               <label style={{ ...labelStyle, marginBottom: 0 }}>Materiais Consumidos (Opcional)</label>
-              
-              {/* BOTÃO + PARA ADICIONAR MATERIAL */}
-              <button 
-                type="button" 
-                onClick={adicionarMaterial} 
-                style={{ background: '#3498db', color: 'white', border: 'none', borderRadius: '4px', padding: '5px 10px', cursor: 'pointer', fontWeight: 'bold' }}
-              >
+              <button type="button" onClick={adicionarMaterial} style={{ background: '#3498db', color: 'white', border: 'none', borderRadius: '4px', padding: '5px 10px', cursor: 'pointer', fontWeight: 'bold' }}>
                 + Adicionar Material
               </button>
           </div>
 
-          {/* LISTA DE CAMPOS (RENDERIZADA BASEADA NO ARRAY) */}
           {materiaisConsumidos.length === 0 ? (
               <p style={{ color: 'var(--text-secundario)', fontSize: '13px', fontStyle: 'italic' }}>Nenhum material vinculado a este serviço.</p>
           ) : (
@@ -250,18 +252,14 @@ export function ModuloServicos({ perfil }: ModuloServicosProps) {
                           
                           <input
                             type="number"
+                            step="any" // <--- Permite números quebrados (0.1, 1.5, etc)
                             placeholder="Qtd"
                             value={item.quantidade}
-                            onChange={(e) => atualizarMaterial(index, 'quantidade', Number(e.target.value))}
+                            onChange={(e) => atualizarMaterial(index, 'quantidade', e.target.value)}
                             style={{ ...inputStyle, flex: 1 }}
                           />
 
-                          <button 
-                            type="button" 
-                            onClick={() => removerMaterial(index)}
-                            style={{ background: '#e74c3c', color: 'white', border: 'none', borderRadius: '4px', padding: '10px', cursor: 'pointer' }}
-                            title="Remover material"
-                          >
+                          <button type="button" onClick={() => removerMaterial(index)} style={{ background: '#e74c3c', color: 'white', border: 'none', borderRadius: '4px', padding: '10px', cursor: 'pointer' }} title="Remover material">
                             🗑️
                           </button>
                       </div>
@@ -270,7 +268,6 @@ export function ModuloServicos({ perfil }: ModuloServicosProps) {
           )}
         </div>
 
-        {/* BOTÕES DE AÇÃO */}
         <div style={{ display: 'flex', gap: '10px' }}>
           <button type="submit" style={{ padding: '12px 24px', backgroundColor: idEmEdicao ? '#e67e22' : '#27ae60', color: 'white', border: 'none', cursor: 'pointer', borderRadius: '6px', fontWeight: 'bold', fontSize: '15px' }}>
             {idEmEdicao ? 'Atualizar Serviço' : 'Cadastrar Serviço'}
@@ -284,7 +281,6 @@ export function ModuloServicos({ perfil }: ModuloServicosProps) {
         </div>
       </form>
 
-      {/* CATÁLOGO */}
       <h4 style={{ marginBottom: '15px' }}>Catálogo de Serviços</h4>
       {servicos.length === 0 ? (
         <p style={{ color: 'var(--text-secundario)' }}>Nenhum serviço cadastrado.</p>
@@ -297,7 +293,6 @@ export function ModuloServicos({ perfil }: ModuloServicosProps) {
                 <p style={{ margin: '0 0 5px 0', color: '#27ae60', fontWeight: 'bold', fontSize: '16px' }}>R$ {servico.preco.toFixed(2)}</p>
                 <p style={{ margin: '0 0 10px 0', color: 'var(--text-secundario)', fontSize: '14px' }}>⏱️ {servico.duracaoMinutos} minutos</p>
                 
-                {/* MOSTRA A LISTA DE MATERIAIS NO CARD DO CATÁLOGO */}
                 {servico.materiaisConsumidos && servico.materiaisConsumidos.length > 0 && (
                   <div style={{ backgroundColor: 'var(--bg-card)', padding: '8px', borderRadius: '4px', border: '1px dashed var(--borda)', fontSize: '13px' }}>
                     <span style={{ color: 'var(--text-secundario)', display: 'block', marginBottom: '5px' }}>📦 Consome: </span>
