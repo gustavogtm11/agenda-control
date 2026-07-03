@@ -62,7 +62,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   const [diasBloqueadosConfig, setDiasBloqueadosConfig] = useState<string[]>([]);
   const [mensagemLembreteConfig, setMensagemLembreteConfig] = useState<string>('');
 
-  // NOVO ESTADO: Controla a visibilidade da tela do formulário
   const [mostrarFormulario, setMostrarFormulario] = useState(false);
 
   const [idEmEdicao, setIdEmEdicao] = useState<string | null>(null);
@@ -233,12 +232,20 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     const [hFimConfig, mFimConfig] = configDoDia.fim.split(':').map(Number);
     const fimExpediente = hFimConfig * 60 + mFimConfig;
 
+    // LÓGICA DE HORÁRIOS RETROATIVOS
+    const eHoje = dataForm === dataDeHoje();
+    const agora = new Date();
+    const minutosAtuais = agora.getHours() * 60 + agora.getMinutes();
+
     return todosHorarios.filter(horario => {
       const [h, m] = horario.split(':').map(Number);
       const inicioDesejado = h * 60 + m; 
       const fimDesejado = inicioDesejado + duracaoAtual;
 
       if (inicioDesejado < inicioExpediente || fimDesejado > fimExpediente) return false;
+
+      // Se for hoje, bloqueia horários que já passaram
+      if (eHoje && inicioDesejado <= minutosAtuais) return false;
 
       if (almocoConfig?.ativo) {
           const [hA, mA] = almocoConfig.inicio.split(':').map(Number);
@@ -320,11 +327,19 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     const [hFim, mFim] = config.fim.split(':').map(Number);
     const fimExpediente = hFim * 60 + mFim;
 
+    // LÓGICA DE HORÁRIOS RETROATIVOS
+    const eHoje = dataStr === dataDeHoje();
+    const agora = new Date();
+    const minutosAtuais = agora.getHours() * 60 + agora.getMinutes();
+
     return todosHorarios.filter(horario => {
         const [h, m] = horario.split(':').map(Number);
         const minutosAtual = h * 60 + m;
         
         if (minutosAtual < inicioExpediente || minutosAtual >= fimExpediente) return false;
+
+        // Se for hoje, bloqueia horários que já passaram
+        if (eHoje && minutosAtual <= minutosAtuais) return false;
 
         if (almocoConfig?.ativo) {
           const [hA, mA] = almocoConfig.inicio.split(':').map(Number);
