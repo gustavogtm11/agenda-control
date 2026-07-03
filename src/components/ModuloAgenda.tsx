@@ -10,13 +10,14 @@ interface ModuloAgendaProps {
   perfil: { companyId: string; role: string } | null;
 }
 
-interface Servico { id: string; nome: string; preco: number; duracaoMinutos: number; materiaisConsumidos?: { nomeMaterial: string, quantidade: number }[]; }
+interface Servico { id: string; nome: string; preco: number; duracaoMinutos: number; materiaisConsumidos?: { nomeMaterial: string, quantidade: string }[]; }
 interface Funcionario { email: string; nome: string; }
 interface Agendamento {
   id: string; 
   clienteNome: string; 
   servicoId: string; 
   servicoNome: string;
+  servicoIds?: string[]; 
   funcionarioEmail?: string; 
   preco: number; 
   dataHora: string; 
@@ -59,23 +60,28 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   const [configHorarios, setConfigHorarios] = useState<HorariosFuncionamento | null>(null);
   const [almocoConfig, setAlmocoConfig] = useState<any>(null);
   const [diasBloqueadosConfig, setDiasBloqueadosConfig] = useState<string[]>([]);
+  const [mensagemLembreteConfig, setMensagemLembreteConfig] = useState<string>('');
+
+  // NOVO ESTADO: Controla a visibilidade da tela do formulário
+  const [mostrarFormulario, setMostrarFormulario] = useState(false);
 
   const [idEmEdicao, setIdEmEdicao] = useState<string | null>(null);
   const [cliente, setCliente] = useState('');
   const [dataForm, setDataForm] = useState(dataDeHoje());
   const [horaForm, setHoraForm] = useState('08:00');
-  const [idServicoSelecionado, setIdServicoSelecionado] = useState('');
+  
+  const [servicoIdsSelecionados, setServicoIdsSelecionados] = useState<string[]>([]);
   const [emailFuncionarioSelecionado, setEmailFuncionarioSelecionado] = useState('');
   
-  // NOVO ESTADO: Controla se o checkbox de encaixe está marcado
   const [isEncaixeAtivo, setIsEncaixeAtivo] = useState(false);
-
   const [dataVisaoDiaria, setDataVisaoDiaria] = useState(dataDeHoje());
 
   const [modalWppAberto, setModalWppAberto] = useState(false);
   const [dataInicioWpp, setDataInicioWpp] = useState(dataDeHoje());
   const [dataFimWpp, setDataFimWpp] = useState(dataDeHoje());
   const [textoWpp, setTextoWpp] = useState('');
+
+  const [agendaLembreteAlvo, setAgendaLembreteAlvo] = useState<Agendamento | null>(null);
 
   const lidarComTokenExpirado = () => {
     sessionStorage.removeItem('googleToken');
@@ -113,6 +119,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
           if (dados.horariosFuncionamento) setConfigHorarios(dados.horariosFuncionamento);
           if (dados.horarioAlmoco) setAlmocoConfig(dados.horarioAlmoco);
           if (dados.diasBloqueados) setDiasBloqueadosConfig(dados.diasBloqueados);
+          if (dados.mensagemLembrete) setMensagemLembreteConfig(dados.mensagemLembrete);
       }
     });
 
@@ -124,7 +131,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     };
   }, [perfil?.companyId]);
 
-  // SINCRONIZAÇÃO GOOGLE EM SEGUNDO PLANO
   useEffect(() => {
     const tokenGoogle = sessionStorage.getItem('googleToken');
     if (!tokenGoogle || !perfil?.companyId || agendamentos.length === 0) return;
@@ -142,7 +148,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
           const eventoGoogle = {
             summary: `${agenda.servicoNome} - ${agenda.clienteNome} ${funcEscolhido ? `(Prof: ${funcEscolhido.nome})` : ''}`,
-            description: `Serviço: ${agenda.servicoNome}\nDuração: ${agenda.duracaoMinutos} min\nCliente: ${agenda.clienteNome}${funcEscolhido ? `\nProfissional: ${funcEscolhido.nome}` : ''}`,
+            description: `Serviços: ${agenda.servicoNome}\nDuração: ${agenda.duracaoMinutos} min\nCliente: ${agenda.clienteNome}${funcEscolhido ? `\nProfissional: ${funcEscolhido.nome}` : ''}`,
             start: { dateTime: start.toISOString() },
             end: { dateTime: end.toISOString() }
           };
@@ -213,8 +219,9 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
     if (!configDoDia || !configDoDia.ativo) return [];
 
-    const servicoAtual = servicosDisponiveis.find(s => s.id === idServicoSelecionado);
-    const duracaoAtual = servicoAtual?.duracaoMinutos || 30;
+    const duracaoAtual = servicosDisponiveis
+      .filter(s => servicoIdsSelecionados.includes(s.id))
+      .reduce((soma, s) => soma + s.duracaoMinutos, 0) || 30;
 
     const agendamentosDoDia = agendamentos.filter(a =>
       a.dataHora.startsWith(dataForm) && a.id !== idEmEdicao && a.status === 'pendente'
@@ -245,7 +252,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
       const temConflito = agendamentosDoDia.some(agendamento => {
           const [hAg, mAg] = agendamento.dataHora.split('T')[1].split(':').map(Number);
           const inicioOcupado = hAg * 60 + mAg;
-          const duracaoOcupada = agendamento.duracaoMinutos || servicosDisponiveis.find(s => s.id === agendamento.servicoId)?.duracaoMinutos || 30;
+          const duracaoOcupada = agendamento.duracaoMinutos || 30;
           const fimOcupado = inicioOcupado + duracaoOcupada;
 
           const conflitoTempo = inicioDesejado < fimOcupado && fimDesejado > inicioOcupado;
@@ -261,23 +268,39 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   const todosHorariosDoDia = gerarHorarios();
   const horariosValidos = obterHorariosDisponiveis();
 
-  // Função WhatsApp Atualizada e Blindada contra erros de Encoding
-  const enviarLembreteWhatsApp = (agenda: Agendamento) => {
+  const montarTextoLembretePersonalizado = (agenda: Agendamento) => {
+    const templatePadrao = `*Lembrete de Agendamento*\n\nOlá, *{primeiroNome}*! Tudo bem? \nPassando aqui para confirmar o seu horário conosco.\n\n*Data:* {data}\n*Horário:* {hora}\n*Serviço:* {servico}\n*Profissional:* {profissional}\n\nSe precisar remarcar, por favor, nos avise com antecedência.\nAté logo!`;
+    const textoBase = mensagemLembreteConfig || templatePadrao;
+
     const primeiroNome = agenda.clienteNome.split(' ')[0];
     const [ano, mes, dia] = agenda.dataHora.split('T')[0].split('-');
-    const hora = agenda.dataHora.split('T')[1];
-    const profissional = agenda.funcionarioEmail ? funcionarios.find(f => f.email === agenda.funcionarioEmail)?.nome : null;
+    const dataFormatada = `${dia}/${mes}/${ano}`;
+    const horaFormatada = agenda.dataHora.split('T')[1];
+    const profissionalObj = agenda.funcionarioEmail ? funcionarios.find(f => f.email === agenda.funcionarioEmail) : null;
+    const nomeProfissional = profissionalObj ? profissionalObj.nome : 'Não especificado';
 
-    const profLine = profissional ? `\n *Profissional:* ${profissional}` : '';
-
-    const mensagem = `*Lembrete de Agendamento* \n\nOlá, *${primeiroNome}*! Tudo bem? \nPassando aqui para confirmar o seu horário conosco.\n\n *Data:* ${dia}/${mes}/${ano}\n *Horário:* ${hora}\n *Serviço:* ${agenda.servicoNome}${profLine}\n\nSe precisar remarcar, por favor, nos avise com antecedência.\nAté logo!`;
-
-    // Usando a API direta em vez do wa.me para blindar a codificação
-    const link = `https://api.whatsapp.com/send?text=${encodeURIComponent(mensagem)}`;
-    window.open(link, '_blank');
+    return textoBase
+      .replace(/{primeiroNome}/g, primeiroNome)
+      .replace(/{data}/g, dataFormatada)
+      .replace(/{hora}/g, horaFormatada)
+      .replace(/{servico}/g, agenda.servicoNome)
+      .replace(/{profissional}/g, nomeProfissional);
   };
 
-  // Esta função não foi alterada para continuar blindada contra os horários de encaixe no WhatsApp
+  const executarCopiarLembrete = (agenda: Agendamento) => {
+    const texto = montarTextoLembretePersonalizado(agenda);
+    navigator.clipboard.writeText(texto);
+    alert("Mensagem de lembrete copiada com sucesso!");
+    setAgendaLembreteAlvo(null);
+  };
+
+  const executarEnviarLembreteWhatsApp = (agenda: Agendamento) => {
+    const texto = montarTextoLembretePersonalizado(agenda);
+    const link = `https://api.whatsapp.com/send?text=${encodeURIComponent(texto)}`;
+    window.open(link, '_blank');
+    setAgendaLembreteAlvo(null);
+  };
+
   const obterHorariosLivresParaWpp = (dataStr: string) => {
     if (!configHorarios || diasBloqueadosConfig.includes(dataStr)) return [];
     
@@ -370,32 +393,33 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
       const textoEncoded = encodeURIComponent(textoWpp);
       window.open(`https://wa.me/?text=${textoEncoded}`, '_blank');
   };
-
   async function lidarComAgendamento(e: React.FormEvent) {
     e.preventDefault();
-    if (!cliente || !dataForm || !horaForm || !idServicoSelecionado || !perfil?.companyId) {
-      alert("Preencha todos os campos obrigatórios!"); return;
+    if (!cliente || !dataForm || !horaForm || servicoIdsSelecionados.length === 0 || !perfil?.companyId) {
+      alert("Preencha todos os campos obrigatórios (incluindo pelo menos um serviço)!"); return;
     }
 
-    // SISTEMA DE ENCAIXES
     const isEncaixe = !horariosValidos.includes(horaForm);
     if (isEncaixe) {
         const confirmar = window.confirm("⚠️ Atenção: Este horário está fora do seu expediente, em horário de almoço ou já possui outro agendamento neste mesmo período.\n\nDeseja realizar este agendamento forçado como um ENCAIXE?");
         if (!confirmar) return;
     }
 
-    const servicoEscolhido = servicosDisponiveis.find(s => s.id === idServicoSelecionado);
+    const listaServicosEscolhidos = servicosDisponiveis.filter(s => servicoIdsSelecionados.includes(s.id));
+    const totalPreco = listaServicosEscolhidos.reduce((soma, s) => soma + s.preco, 0);
+    const totalDuracao = listaServicosEscolhidos.reduce((soma, s) => soma + s.duracaoMinutos, 0);
+    const nomesDosServicos = listaServicosEscolhidos.map(s => s.nome).join(', ');
+
     const funcEscolhido = funcionarios.find(f => f.email === emailFuncionarioSelecionado);
     const dataHoraIso = `${dataForm}T${horaForm}`;
 
     const tokenGoogle = sessionStorage.getItem('googleToken');
-    const duracaoFinal = servicoEscolhido?.duracaoMinutos || 30;
     const start = new Date(`${dataHoraIso}:00`);
-    const end = new Date(start.getTime() + (duracaoFinal * 60 * 1000));
+    const end = new Date(start.getTime() + (totalDuracao * 60 * 1000));
     
     const eventoGoogle = {
-      summary: `${servicoEscolhido?.nome} - ${cliente} ${funcEscolhido ? `(Prof: ${funcEscolhido.nome})` : ''}`,
-      description: `Serviço: ${servicoEscolhido?.nome}\nDuração: ${duracaoFinal} min\nCliente: ${cliente}${funcEscolhido ? `\nProfissional: ${funcEscolhido.nome}` : ''}`,
+      summary: `${nomesDosServicos} - ${cliente} ${funcEscolhido ? `(Prof: ${funcEscolhido.nome})` : ''}`,
+      description: `Serviços: ${nomesDosServicos}\nDuração Total: ${totalDuracao} min\nCliente: ${cliente}${funcEscolhido ? `\nProfissional: ${funcEscolhido.nome}` : ''}`,
       start: { dateTime: start.toISOString() },
       end: { dateTime: end.toISOString() }
     };
@@ -430,9 +454,12 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
       try {
         await updateDoc(doc(db, 'agendamentos', idEmEdicao), {
-            clienteNome: cliente, dataHora: dataHoraIso, servicoId: servicoEscolhido?.id,
-            servicoNome: servicoEscolhido?.nome, funcionarioEmail: emailFuncionarioSelecionado || null,
-            preco: servicoEscolhido?.preco, duracaoMinutos: duracaoFinal,
+            clienteNome: cliente, dataHora: dataHoraIso, 
+            servicoId: servicoIdsSelecionados[0], 
+            servicoNome: nomesDosServicos,
+            servicoIds: servicoIdsSelecionados,
+            funcionarioEmail: emailFuncionarioSelecionado || null,
+            preco: totalPreco, duracaoMinutos: totalDuracao,
             googleSyncPending: googleSyncPending
         });
         alert("Agendamento atualizado com sucesso!");
@@ -469,9 +496,12 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
       try {
         await addDoc(collection(db, 'agendamentos'), {
-            clienteNome: cliente, dataHora: dataHoraIso, servicoId: servicoEscolhido?.id,
-            servicoNome: servicoEscolhido?.nome, funcionarioEmail: emailFuncionarioSelecionado || null,
-            preco: servicoEscolhido?.preco, duracaoMinutos: duracaoFinal,
+            clienteNome: cliente, dataHora: dataHoraIso, 
+            servicoId: servicoIdsSelecionados[0], 
+            servicoNome: nomesDosServicos,
+            servicoIds: servicoIdsSelecionados,
+            funcionarioEmail: emailFuncionarioSelecionado || null,
+            preco: totalPreco, duracaoMinutos: totalDuracao,
             companyId: perfil?.companyId, status: 'pendente',
             googleEventId: googleEventIdSalvar,
             googleSyncPending: googleSyncPending
@@ -482,8 +512,10 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
       }
     }
 
-    setCliente(''); setIdServicoSelecionado(''); setEmailFuncionarioSelecionado(''); setIdEmEdicao(null); setIsEncaixeAtivo(false);
+    // Fechar e limpar formulário
+    setCliente(''); setServicoIdsSelecionados([]); setEmailFuncionarioSelecionado(''); setIdEmEdicao(null); setIsEncaixeAtivo(false);
     setDataVisaoDiaria(dataForm); 
+    setMostrarFormulario(false);
   }
 
   function prepararEdicao(agenda: Agendamento) {
@@ -491,9 +523,19 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     setCliente(agenda.clienteNome);
     setDataForm(agenda.dataHora.split('T')[0]);
     setHoraForm(agenda.dataHora.split('T')[1]);
-    setIdServicoSelecionado(agenda.servicoId);
+    
+    setServicoIdsSelecionados(agenda.servicoIds || (agenda.servicoId ? [agenda.servicoId] : []));
     setEmailFuncionarioSelecionado(agenda.funcionarioEmail || '');
+    setMostrarFormulario(true); // Garante que a tela de form se abra
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function cancelarEdicao() {
+    setIdEmEdicao(null); 
+    setCliente(''); 
+    setServicoIdsSelecionados([]); 
+    setIsEncaixeAtivo(false);
+    setMostrarFormulario(false);
   }
 
   async function excluirAgendamento(agenda: Agendamento) {
@@ -536,43 +578,46 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     try {
       let transacaoId = '';
       if (perfil?.companyId) {
-        const transacaoRef = await addDoc(collection(db, 'financas'), {
+        transacaoId = (await addDoc(collection(db, 'financas'), {
           descricao: `Serviço: ${agenda.servicoNome} - Cliente: ${agenda.clienteNome}`,
           valor: agenda.preco,
           tipo: 'entrada',
           data: new Date().toISOString(),
           companyId: perfil.companyId,
           origem: 'agenda'
-        });
-        transacaoId = transacaoRef.id;
+        })).id;
         
-        const servicoRef = doc(db, 'servicos', agenda.servicoId);
-        const servicoSnap = await getDoc(servicoRef);
+        const idsDosServicos = agenda.servicoIds && agenda.servicoIds.length > 0 ? agenda.servicoIds : [agenda.servicoId];
         
-        if (servicoSnap.exists()) {
-          const dadosServico = servicoSnap.data();
-          const materiais = dadosServico.materiaisConsumidos || [];
+        for (const sId of idsDosServicos) {
+          const servicoRef = doc(db, 'servicos', sId);
+          const servicoSnap = await getDoc(servicoRef);
+          
+          if (servicoSnap.exists()) {
+            const dadosServico = servicoSnap.data();
+            const materiais = dadosServico.materiaisConsumidos || [];
 
-          for (const mat of materiais) {
-              const nomeMaterial = mat.nomeMaterial;
-              const qtdConsumida = parseFloat(mat.quantidade) || 0;
+            for (const mat of materiais) {
+                const nomeMaterial = mat.nomeMaterial;
+                const qtdConsumida = parseFloat(mat.quantidade) || 0;
 
-              if (nomeMaterial && qtdConsumida > 0) {
-                  const qEstoque = query(
-                  collection(db, 'estoque'), 
-                  where('companyId', '==', perfil.companyId),
-                  where('nome', '==', nomeMaterial)
-                );
-                const querySnapshot = await getDocs(qEstoque);
-                
-                if (!querySnapshot.empty) {
-                    const itemEstoque = querySnapshot.docs[0];
-                    const qtdAtual = itemEstoque.data().quantidade;
-                    await updateDoc(doc(db, 'estoque', itemEstoque.id), {
-                        quantidade: Math.max(0, qtdAtual - qtdConsumida)
-                    });
+                if (nomeMaterial && qtdConsumida > 0) {
+                    const qEstoque = query(
+                    collection(db, 'estoque'), 
+                    where('companyId', '==', perfil.companyId),
+                    where('nome', '==', nomeMaterial)
+                  );
+                  const querySnapshot = await getDocs(qEstoque);
+                  
+                  if (!querySnapshot.empty) {
+                      const itemEstoque = querySnapshot.docs[0];
+                      const qtdAtual = itemEstoque.data().quantidade;
+                      await updateDoc(doc(db, 'estoque', itemEstoque.id), {
+                          quantidade: Math.max(0, qtdAtual - qtdConsumida)
+                      });
+                  }
                 }
-              }
+            }
           }
         }
       }
@@ -605,33 +650,37 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
               await deleteDoc(doc(db, 'financas', agenda.transacaoCaixaId));
           }
 
-          const servicoRef = doc(db, 'servicos', agenda.servicoId);
-          const servicoSnap = await getDoc(servicoRef);
-          
-          if (servicoSnap.exists() && perfil?.companyId) {
-            const dadosServico = servicoSnap.data();
-            const materiais = dadosServico.materiaisConsumidos || [];
+          const idsDosServicos = agenda.servicoIds && agenda.servicoIds.length > 0 ? agenda.servicoIds : [agenda.servicoId];
 
-            for (const mat of materiais) {
-                const nomeMaterial = mat.nomeMaterial;
-                const qtdConsumida = parseFloat(mat.quantidade) || 0;
+          for (const sId of idsDosServicos) {
+            const servicoRef = doc(db, 'servicos', sId);
+            const servicoSnap = await getDoc(servicoRef);
+            
+            if (servicoSnap.exists() && perfil?.companyId) {
+              const dadosServico = servicoSnap.data();
+              const materiais = dadosServico.materiaisConsumidos || [];
 
-                if (nomeMaterial && qtdConsumida > 0) {
-                    const qEstoque = query(
-                        collection(db, 'estoque'), 
-                        where('companyId', '==', perfil.companyId),
-                        where('nome', '==', nomeMaterial)
-                    );
-                    const querySnapshot = await getDocs(qEstoque);
-                    
-                    if (!querySnapshot.empty) {
-                        const itemEstoque = querySnapshot.docs[0];
-                        const qtdAtual = itemEstoque.data().quantidade;
-                        await updateDoc(doc(db, 'estoque', itemEstoque.id), {
-                            quantidade: qtdAtual + qtdConsumida
-                        });
-                    }
-                }
+              for (const mat of materiais) {
+                  const nomeMaterial = mat.nomeMaterial;
+                  const qtdConsumida = parseFloat(mat.quantidade) || 0;
+
+                  if (nomeMaterial && qtdConsumida > 0) {
+                      const qEstoque = query(
+                          collection(db, 'estoque'), 
+                          where('companyId', '==', perfil.companyId),
+                          where('nome', '==', nomeMaterial)
+                      );
+                      const querySnapshot = await getDocs(qEstoque);
+                      
+                      if (!querySnapshot.empty) {
+                          const itemEstoque = querySnapshot.docs[0];
+                          const qtdAtual = itemEstoque.data().quantidade;
+                          await updateDoc(doc(db, 'estoque', itemEstoque.id), {
+                              quantidade: qtdAtual + qtdConsumida
+                          });
+                      }
+                  }
+              }
             }
           }
 
@@ -661,6 +710,14 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     return 'Data Selecionada';
   };
 
+  const handleToggleServicoCheckbox = (id: string) => {
+    if (servicoIdsSelecionados.includes(id)) {
+      setServicoIdsSelecionados(servicoIdsSelecionados.filter(sid => sid !== id));
+    } else {
+      setServicoIdsSelecionados([...servicoIdsSelecionados, id]);
+    }
+  };
+
   const tituloDaData = obterTituloDataVisao();
   const corDoTitulo = tituloDaData === 'Hoje' ? '#3498db' : 'var(--text-secundario)';
   const agendamentosDoDia = agendamentos.filter(a => a.dataHora.startsWith(dataVisaoDiaria));
@@ -675,201 +732,304 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   };
 
   return (
-    <div style={{ background: 'var(--bg-card)', padding: '20px', borderRadius: '8px', border: '1px solid var(--borda)', color: 'var(--text-principal)', transition: 'all 0.3s' }}>
+    <div style={{ position: 'relative', background: 'var(--bg-card)', padding: '20px', borderRadius: '8px', border: '1px solid var(--borda)', color: 'var(--text-principal)', transition: 'all 0.3s', minHeight: '80vh' }}>
       
-      <h3 style={{ marginTop: 0, color: idEmEdicao ? '#e67e22' : 'var(--text-principal)' }}>
-        {idEmEdicao ? '✏️ Editando Agendamento' : '➕ Novo Agendamento'}
-      </h3>
-      
-      <form onSubmit={lidarComAgendamento} style={{ display: 'flex', gap: '10px', marginBottom: '30px', flexWrap: 'wrap', paddingBottom: '20px', borderBottom: '2px dashed var(--borda)' }}>
-        
-        {/* Adicionado um container em 100% da largura para comportar os inputs text/date/select sem quebrar tão cedo */}
-        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', flex: '1 1 100%' }}>
-            <input type="text" placeholder="Nome do Cliente" value={cliente} onChange={e => setCliente(e.target.value)} style={{ ...inputStyle, flex: '1 1 200px' }} />
-            <input type="date" value={dataForm} onChange={e => setDataForm(e.target.value)} style={{ ...inputStyle, flex: '1 1 130px' }} />
+      {/* SEÇÃO CONDICIONAL: TELA DE FORMULÁRIO */}
+      {mostrarFormulario ? (
+        <div style={{ animation: 'fadeIn 0.3s ease-in-out' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '20px' }}>
+            <button onClick={cancelarEdicao} style={{ background: 'transparent', border: '1px solid var(--borda)', color: 'var(--text-principal)', padding: '8px 12px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}>
+              ⬅ Voltar
+            </button>
+            <h3 style={{ margin: 0, color: idEmEdicao ? '#e67e22' : 'var(--text-principal)' }}>
+              {idEmEdicao ? '✏️ Editando Agendamento' : '➕ Novo Agendamento'}
+            </h3>
+          </div>
+          
+          <form onSubmit={lidarComAgendamento} style={{ display: 'flex', gap: '10px', marginBottom: '30px', flexWrap: 'wrap', paddingBottom: '20px', borderBottom: '2px dashed var(--borda)' }}>
             
-            {/* SELECT CONDICIONAL: Só mostra os horários livres, a menos que o checkbox esteja marcado */}
-            <select value={horaForm} onChange={e => setHoraForm(e.target.value)} style={{ ...inputStyle, flex: '1 1 120px' }}>
-              {(isEncaixeAtivo ? todosHorariosDoDia : horariosValidos).map(h => {
-                  const disponivel = horariosValidos.includes(h);
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', flex: '1 1 100%' }}>
+                <input type="text" placeholder="Nome do Cliente" value={cliente} onChange={e => setCliente(e.target.value)} style={{ ...inputStyle, flex: '1 1 200px' }} />
+                <input type="date" value={dataForm} onChange={e => setDataForm(e.target.value)} style={{ ...inputStyle, flex: '1 1 130px' }} />
+                
+                <select value={horaForm} onChange={e => setHoraForm(e.target.value)} style={{ ...inputStyle, flex: '1 1 120px' }}>
+                  {(isEncaixeAtivo ? todosHorariosDoDia : horariosValidos).map(h => {
+                      const disponivel = horariosValidos.includes(h);
+                      return (
+                        <option key={h} value={h}>
+                          {h} {isEncaixeAtivo && !disponivel ? '(Encaixe/Ocupado)' : ''}
+                        </option>
+                      )
+                  })}
+                </select>
+
+                <select value={emailFuncionarioSelecionado} onChange={e => setEmailFuncionarioSelecionado(e.target.value)} style={{ ...inputStyle, flex: '1 1 180px' }}>
+                  <option value="">-- Profissional --</option>
+                  {funcionarios.map(f => <option key={f.email} value={f.email}>{f.nome}</option>)}
+                </select>
+            </div>
+
+            <div style={{ flex: '1 1 100%', backgroundColor: 'var(--bg-card-item)', padding: '15px', borderRadius: '6px', border: '1px solid var(--borda)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <span style={{ fontWeight: 'bold', fontSize: '14px', color: 'var(--text-principal)' }}>📌 Escolha os Serviços (Selecione um ou mais):</span>
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                {servicosDisponiveis.map(s => {
+                  const estaSelecionado = servicoIdsSelecionados.includes(s.id);
                   return (
-                    <option key={h} value={h}>
-                      {h} {isEncaixeAtivo && !disponivel ? '(Encaixe/Ocupado)' : ''}
-                    </option>
-                  )
-              })}
-            </select>
-
-            <select value={idServicoSelecionado} onChange={e => setIdServicoSelecionado(e.target.value)} style={{ ...inputStyle, flex: '1 1 200px' }}>
-              <option value="">-- Serviço --</option>
-              {servicosDisponiveis.map(s => <option key={s.id} value={s.id}>{s.nome} - R$ {s.preco.toFixed(2)}</option>)}
-            </select>
-            <select value={emailFuncionarioSelecionado} onChange={e => setEmailFuncionarioSelecionado(e.target.value)} style={{ ...inputStyle, flex: '1 1 180px' }}>
-              <option value="">-- Profissional --</option>
-              {funcionarios.map(f => <option key={f.email} value={f.email}>{f.nome}</option>)}
-            </select>
-        </div>
-
-        {/* Checkbox de Liberação de Encaixes */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: '1 1 100%', marginBottom: '10px' }}>
-          <input 
-            type="checkbox" 
-            id="checkboxEncaixe" 
-            checked={isEncaixeAtivo} 
-            onChange={e => setIsEncaixeAtivo(e.target.checked)} 
-            style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-          />
-          <label htmlFor="checkboxEncaixe" style={{ cursor: 'pointer', color: 'var(--text-principal)', fontSize: '14px', fontWeight: 'bold' }}>
-            Liberar todos os horários (Permitir Encaixe / Forçar agendamento)
-          </label>
-        </div>
-        
-        <button type="submit" style={{ padding: '12px 20px', backgroundColor: idEmEdicao ? '#e67e22' : '#2980b9', color: 'white', border: 'none', cursor: 'pointer', borderRadius: '6px', fontWeight: 'bold' }}>
-          {idEmEdicao ? 'Atualizar' : 'Agendar'}
-        </button>
-        {idEmEdicao && (
-          <button type="button" onClick={() => { setIdEmEdicao(null); setCliente(''); }} style={{ padding: '12px 20px', backgroundColor: 'var(--text-secundario)', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Cancelar</button>
-        )}
-      </form>
-
-      {/* GERADOR DE WHATSAPP */}
-      <div style={{ backgroundColor: 'var(--bg-card-item)', padding: '15px', borderRadius: '8px', marginBottom: '30px', border: '1px solid #2ecc71' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-          <h4 style={{ margin: 0, color: '#27ae60', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            📱 Gerar Horários para WhatsApp
-          </h4>
-          <button onClick={() => setModalWppAberto(!modalWppAberto)} style={{ padding: '8px 15px', backgroundColor: modalWppAberto ? 'var(--text-secundario)' : '#27ae60', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
-            {modalWppAberto ? 'Fechar Gerador' : 'Abrir Gerador'}
-          </button>
-        </div>
-
-        {modalWppAberto && (
-          <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
-            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-              <div>
-                <label style={{ fontSize: '12px', display: 'block', color: 'var(--text-secundario)', marginBottom: '5px' }}>Data Início</label>
-                <input type="date" value={dataInicioWpp} onChange={e => setDataInicioWpp(e.target.value)} style={inputStyle} />
+                    <label key={s.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', background: estaSelecionado ? 'rgba(41, 128, 185, 0.15)' : 'var(--bg-input)', padding: '8px 12px', borderRadius: '6px', border: estaSelecionado ? '1px solid #2980b9' : '1px solid var(--borda)', transition: 'all 0.2s', userSelect: 'none' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={estaSelecionado} 
+                        onChange={() => handleToggleServicoCheckbox(s.id)}
+                        style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                      />
+                      <span style={{ fontSize: '14px' }}>
+                        {s.nome} (<span style={{ color: '#27ae60', fontWeight: 'bold' }}>R$ {s.preco.toFixed(2)}</span> • 🕒 {s.duracaoMinutos}m)
+                      </span>
+                    </label>
+                  );
+                })}
               </div>
-              <div>
-                <label style={{ fontSize: '12px', display: 'block', color: 'var(--text-secundario)', marginBottom: '5px' }}>Data Fim</label>
-                <input type="date" value={dataFimWpp} onChange={e => setDataFimWpp(e.target.value)} style={inputStyle} />
-              </div>
-              <div style={{ display: 'flex', gap: '10px' }}>
-                  <button onClick={() => {
-                    const hoje = dataDeHoje();
-                    setDataInicioWpp(hoje);
-                    setDataFimWpp(hoje);
-                  }} style={{ padding: '12px', backgroundColor: 'var(--bg-input)', color: 'var(--text-principal)', border: '1px solid var(--borda)', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
-                    Somente Hoje
-                  </button>
-                  <button onClick={gerarTextoWhatsApp} style={{ padding: '12px 20px', backgroundColor: '#3498db', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
-                    Gerar Lista
-                  </button>
-              </div>
+
+              {servicoIdsSelecionados.length > 0 && (
+                <div style={{ display: 'flex', gap: '15px', fontSize: '13px', background: 'var(--bg-input)', padding: '8px 12px', borderRadius: '4px', borderLeft: '3px solid #2980b9', fontWeight: 'bold', color: 'var(--text-principal)' }}>
+                  <span>⏱️ Duração Total: {servicosDisponiveis.filter(s => servicoIdsSelecionados.includes(s.id)).reduce((acc, s) => acc + s.duracaoMinutos, 0)} minutos</span>
+                  <span>💰 Valor Total: R$ {servicosDisponiveis.filter(s => servicoIdsSelecionados.includes(s.id)).reduce((acc, s) => acc + s.preco, 0).toFixed(2)}</span>
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: '1 1 100%', marginBottom: '10px' }}>
+              <input 
+                type="checkbox" 
+                id="checkboxEncaixe" 
+                checked={isEncaixeAtivo} 
+                onChange={e => setIsEncaixeAtivo(e.target.checked)} 
+                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+              />
+              <label htmlFor="checkboxEncaixe" style={{ cursor: 'pointer', color: 'var(--text-principal)', fontSize: '14px', fontWeight: 'bold' }}>
+                Liberar todos os horários (Permitir Encaixe / Forçar agendamento)
+              </label>
             </div>
             
-            {textoWpp && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
-                  <textarea 
-                      value={textoWpp} 
-                      onChange={e => setTextoWpp(e.target.value)}
-                      style={{ width: '100%', height: '180px', padding: '12px', borderRadius: '4px', border: '1px solid var(--borda)', backgroundColor: 'var(--bg-input)', color: 'var(--text-principal)', resize: 'vertical', fontFamily: 'monospace', fontSize: '13px' }}
-                  />
-                  <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                      <button onClick={copiarTexto} style={{ flex: '1 1 200px', padding: '12px', backgroundColor: '#34495e', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
-                        📋 Copiar Mensagem
+            <button type="submit" style={{ padding: '12px 20px', backgroundColor: idEmEdicao ? '#e67e22' : '#2980b9', color: 'white', border: 'none', cursor: 'pointer', borderRadius: '6px', fontWeight: 'bold' }}>
+              {idEmEdicao ? 'Atualizar Agendamento' : 'Salvar Agendamento'}
+            </button>
+            {idEmEdicao && (
+              <button type="button" onClick={cancelarEdicao} style={{ padding: '12px 20px', backgroundColor: 'var(--text-secundario)', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Cancelar</button>
+            )}
+          </form>
+        </div>
+      ) : (
+        /* SEÇÃO CONDICIONAL: TELA PRINCIPAL (WHATSAPP E PLANNER) */
+        <div style={{ animation: 'fadeIn 0.3s ease-in-out' }}>
+          {/* GERADOR DE WHATSAPP */}
+          <div style={{ backgroundColor: 'var(--bg-card-item)', padding: '15px', borderRadius: '8px', marginBottom: '30px', border: '1px solid #2ecc71' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+              <h4 style={{ margin: 0, color: '#27ae60', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                📱 Gerar Horários para WhatsApp
+              </h4>
+              <button onClick={() => setModalWppAberto(!modalWppAberto)} style={{ padding: '8px 15px', backgroundColor: modalWppAberto ? 'var(--text-secundario)' : '#27ae60', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
+                {modalWppAberto ? 'Fechar Gerador' : 'Abrir Gerador'}
+              </button>
+            </div>
+
+            {modalWppAberto && (
+              <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  <div>
+                    <label style={{ fontSize: '12px', display: 'block', color: 'var(--text-secundario)', marginBottom: '5px' }}>Data Início</label>
+                    <input type="date" value={dataInicioWpp} onChange={e => setDataInicioWpp(e.target.value)} style={inputStyle} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '12px', display: 'block', color: 'var(--text-secundario)', marginBottom: '5px' }}>Data Fim</label>
+                    <input type="date" value={dataFimWpp} onChange={e => setDataFimWpp(e.target.value)} style={inputStyle} />
+                  </div>
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                      <button onClick={() => {
+                        const hoje = dataDeHoje();
+                        setDataInicioWpp(hoje);
+                        setDataFimWpp(hoje);
+                      }} style={{ padding: '12px', backgroundColor: 'var(--bg-input)', color: 'var(--text-principal)', border: '1px solid var(--borda)', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
+                        Somente Hoje
                       </button>
-                      <button onClick={abrirWhatsApp} style={{ flex: '1 1 200px', padding: '12px', backgroundColor: '#25D366', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
-                        💬 Enviar via WhatsApp
+                      <button onClick={gerarTextoWhatsApp} style={{ padding: '12px 20px', backgroundColor: '#3498db', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
+                        Gerar Lista
                       </button>
                   </div>
                 </div>
+                
+                {textoWpp && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
+                      <textarea 
+                          value={textoWpp} 
+                          onChange={e => setTextoWpp(e.target.value)}
+                          style={{ width: '100%', height: '180px', padding: '12px', borderRadius: '4px', border: '1px solid var(--borda)', backgroundColor: 'var(--bg-input)', color: 'var(--text-principal)', resize: 'vertical', fontFamily: 'monospace', fontSize: '13px' }}
+                      />
+                      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                          <button onClick={copiarTexto} style={{ flex: '1 1 200px', padding: '12px', backgroundColor: '#34495e', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
+                            📋 Copiar Mensagem
+                          </button>
+                          <button onClick={abrirWhatsApp} style={{ flex: '1 1 200px', padding: '12px', backgroundColor: '#25D366', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
+                            💬 Enviar via WhatsApp
+                          </button>
+                      </div>
+                    </div>
+                )}
+              </div>
             )}
           </div>
-        )}
-      </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-card-destaque)', padding: '15px', borderRadius: '8px', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
-        <h3 style={{ margin: 0, color: 'var(--text-principal)' }}>🗓️ Planner</h3>
-        
-        <div style={{ display: 'flex', alignItems: 'center', gap: '15px', background: 'var(--bg-input)', padding: '5px 15px', borderRadius: '20px', border: '1px solid var(--borda)' }}>
-          <button type="button" onClick={() => mudarDia(-1)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: 'var(--text-principal)' }}>◀</button>
-          
-          <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <span style={{ fontSize: '12px', fontWeight: 'bold', color: corDoTitulo }}>
-              {tituloDaData}
-            </span>
-            <input 
-              type="date" 
-              value={dataVisaoDiaria}
-              onChange={e => {
-                if(e.target.value) setDataVisaoDiaria(e.target.value);
-              }}
-              style={{
-                border: 'none',
-                background: 'transparent',
-                color: 'var(--text-principal)',
-                fontSize: '15px',
-                fontWeight: 'bold',
-                cursor: 'pointer',
-                outline: 'none',
-                padding: '2px'
-              }}
-              title="Pular para uma data específica"
-            />
+          {/* PLANNER */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-card-destaque)', padding: '15px', borderRadius: '8px', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
+            <h3 style={{ margin: 0, color: 'var(--text-principal)' }}>🗓️ Planner</h3>
+            
+            <div style={{ display: 'flex', alignItems: 'center', gap: '15px', background: 'var(--bg-input)', padding: '5px 15px', borderRadius: '20px', border: '1px solid var(--borda)' }}>
+              <button type="button" onClick={() => mudarDia(-1)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: 'var(--text-principal)' }}>◀</button>
+              
+              <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <span style={{ fontSize: '12px', fontWeight: 'bold', color: corDoTitulo }}>
+                  {tituloDaData}
+                </span>
+                <input 
+                  type="date" 
+                  value={dataVisaoDiaria}
+                  onChange={e => {
+                    if(e.target.value) setDataVisaoDiaria(e.target.value);
+                  }}
+                  style={{
+                    border: 'none',
+                    background: 'transparent',
+                    color: 'var(--text-principal)',
+                    fontSize: '15px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    outline: 'none',
+                    padding: '2px'
+                  }}
+                  title="Pular para uma data específica"
+                />
+              </div>
+
+              <button type="button" onClick={() => mudarDia(1)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: 'var(--text-principal)' }}>▶</button>
+            </div>
           </div>
 
-          <button type="button" onClick={() => mudarDia(1)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: 'var(--text-principal)' }}>▶</button>
-        </div>
-      </div>
+          {agendamentosDoDia.length === 0 ? (
+            <p style={{ color: 'var(--text-secundario)', textAlign: 'center', padding: '20px' }}>Nenhum agendamento para este dia.</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingBottom: '80px' }}>
+              {agendamentosDoDia.map(agenda => {
+                const horaAgendamento = agenda.dataHora.split('T')[1];
+                return (
+                  <div key={agenda.id} style={{ display: 'flex', backgroundColor: 'var(--bg-card-item)', border: '1px solid var(--borda)', borderRadius: '6px', overflow: 'hidden', color: 'var(--text-principal)' }}>
+                    
+                    <div style={{ backgroundColor: agenda.status === 'pendente' ? '#34495e' : '#27ae60', color: 'white', padding: '20px 5px', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '60px', fontWeight: 'bold', fontSize: '18px' }}>
+                      {horaAgendamento}
+                    </div>
+                    
+                    <div style={{ padding: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flex: 1, flexWrap: 'wrap', gap: '10px' }}>
+                      <div>
+                        <h4 style={{ margin: '0 0 5px 0', fontSize: '16px' }}>
+                          {agenda.clienteNome} {agenda.googleSyncPending && <span style={{ fontSize: '12px', color: '#e67e22', fontStyle: 'italic' }}>(Aguardando conexão...)</span>}
+                        </h4>
+                        <p style={{ margin: 0, color: 'var(--text-secundario)', fontSize: '14px' }}>
+                          {agenda.servicoNome} {agenda.funcionarioEmail && `(Prof: ${funcionarios.find(f => f.email === agenda.funcionarioEmail)?.nome})`}
+                        </p>
+                      </div>
+                      
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        {agenda.status === 'pendente' ? (
+                          <>
+                            <button onClick={() => setAgendaLembreteAlvo(agenda)} style={{ padding: '8px 12px', backgroundColor: '#25D366', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '16px' }} title="Enviar Lembrete">💬</button>
+                            <button onClick={() => prepararEdicao(agenda)} style={{ padding: '8px 12px', backgroundColor: '#f39d12c9', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }} title="Editar">✏️</button>
+                            <button onClick={() => excluirAgendamento(agenda)} style={{ padding: '8px 12px', backgroundColor: '#e74d3ccb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }} title="Excluir">🗑️</button>
+                            <button onClick={() => marcarComoConcluido(agenda)} style={{ padding: '8px 12px', backgroundColor: '#27ae60c9', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>✓ Concluir</button>
+                          </>
+                        ) : (
+                          <span 
+                              onContextMenu={(e) => reverterConclusao(e, agenda)}
+                              style={{ color: '#27ae60', fontWeight: 'bold', cursor: 'pointer', userSelect: 'none' }}
+                              title="Toque e segure (ou clique direito) para Reverter"
+                          >
+                              ✓ Finalizado
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
-      {agendamentosDoDia.length === 0 ? (
-        <p style={{ color: 'var(--text-secundario)', textAlign: 'center', padding: '20px' }}>Nenhum agendamento para este dia.</p>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {agendamentosDoDia.map(agenda => {
-            const horaAgendamento = agenda.dataHora.split('T')[1];
-            return (
-              <div key={agenda.id} style={{ display: 'flex', backgroundColor: 'var(--bg-card-item)', border: '1px solid var(--borda)', borderRadius: '6px', overflow: 'hidden', color: 'var(--text-principal)' }}>
-                
-                <div style={{ backgroundColor: agenda.status === 'pendente' ? '#34495e' : '#27ae60', color: 'white', padding: '20px 5px', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '60px', fontWeight: 'bold', fontSize: '18px' }}>
-                  {horaAgendamento}
-                </div>
-                
-                <div style={{ padding: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flex: 1, flexWrap: 'wrap', gap: '10px' }}>
-                  <div>
-                    <h4 style={{ margin: '0 0 5px 0', fontSize: '16px' }}>
-                      {agenda.clienteNome} {agenda.googleSyncPending && <span style={{ fontSize: '12px', color: '#e67e22', fontStyle: 'italic' }}>(Aguardando conexão...)</span>}
-                    </h4>
-                    <p style={{ margin: 0, color: 'var(--text-secundario)', fontSize: '14px' }}>
-                      {agenda.servicoNome} {agenda.funcionarioEmail && `(Prof: ${funcionarios.find(f => f.email === agenda.funcionarioEmail)?.nome})`}
-                    </p>
-                  </div>
-                  
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    {agenda.status === 'pendente' ? (
-                      <>
-                        <button onClick={() => enviarLembreteWhatsApp(agenda)} style={{ padding: '8px 12px', backgroundColor: '#25D366', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '16px' }} title="Enviar Lembrete">💬</button>
-                        <button onClick={() => prepararEdicao(agenda)} style={{ padding: '8px 12px', backgroundColor: '#f39d12c9', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }} title="Editar">✏️</button>
-                        <button onClick={() => excluirAgendamento(agenda)} style={{ padding: '8px 12px', backgroundColor: '#e74d3ccb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }} title="Excluir">🗑️</button>
-                        <button onClick={() => marcarComoConcluido(agenda)} style={{ padding: '8px 12px', backgroundColor: '#27ae60c9', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>✓ Concluir</button>
-                      </>
-                    ) : (
-                      <span 
-                          onContextMenu={(e) => reverterConclusao(e, agenda)}
-                          style={{ color: '#27ae60', fontWeight: 'bold', cursor: 'pointer', userSelect: 'none' }}
-                          title="Toque e segure (ou clique direito) para Reverter"
-                      >
-                          ✓ Finalizado
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+          {/* BOTÃO FLUTUANTE (FAB) PARA NOVO AGENDAMENTO */}
+          <button 
+            onClick={() => setMostrarFormulario(true)}
+            style={{
+              position: 'fixed',
+              bottom: '30px',
+              right: '30px',
+              width: '60px',
+              height: '60px',
+              borderRadius: '50%',
+              backgroundColor: '#2980b9',
+              color: 'white',
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              fontSize: '35px',
+              fontWeight: 'bold',
+              border: 'none',
+              boxShadow: '0 4px 15px rgba(0,0,0,0.4)',
+              cursor: 'pointer',
+              zIndex: 1000,
+              transition: 'transform 0.2s'
+            }}
+            onMouseOver={e => e.currentTarget.style.transform = 'scale(1.1)'}
+            onMouseOut={e => e.currentTarget.style.transform = 'scale(1)'}
+            title="Novo Agendamento"
+          >
+            +
+          </button>
         </div>
       )}
+
+      {/* MODAL DE ESCOLHA DO LEMBRETE (FICA FORA DO IF PARA APARECER SEMPRE) */}
+      {agendaLembreteAlvo && (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '20px', boxSizing: 'border-box' }}>
+          <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--borda)', color: 'var(--text-principal)', padding: '20px', borderRadius: '8px', maxWidth: '500px', width: '100%', boxShadow: '0 4px 15px rgba(0,0,0,0.3)' }}>
+            <h4 style={{ marginTop: 0, marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>💬 Lembrete para {agendaLembreteAlvo.clienteNome}</h4>
+            <p style={{ fontSize: '13px', color: 'var(--text-secundario)', marginBottom: '15px' }}>Pré-visualização da mensagem estruturada com o seu template:</p>
+            
+            <pre style={{ backgroundColor: 'var(--bg-input)', padding: '12px', borderRadius: '6px', border: '1px solid var(--borda)', whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '13px', margin: '0 0 20px 0', maxHeight: '200px', overflowY: 'auto' }}>
+              {montarTextoLembretePersonalizado(agendaLembreteAlvo)}
+            </pre>
+
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+              <button 
+                onClick={() => executarCopiarLembrete(agendaLembreteAlvo)}
+                style={{ flex: '1 1 130px', padding: '12px', backgroundColor: '#34495e', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
+              >
+                📋 Copiar Mensagem
+              </button>
+              <button 
+                onClick={() => executarEnviarLembreteWhatsApp(agendaLembreteAlvo)}
+                style={{ flex: '1 1 130px', padding: '12px', backgroundColor: '#25D366', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
+              >
+                🚀 Enviar WhatsApp
+              </button>
+            </div>
+            
+            <button 
+              onClick={() => setAgendaLembreteAlvo(null)}
+              style={{ width: '100%', marginTop: '10px', padding: '10px', background: 'transparent', color: 'var(--text-secundario)', border: 'none', cursor: 'pointer', fontSize: '13px', textDecoration: 'underline' }}
+            >
+              Cancelar e Fechar
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
