@@ -1,8 +1,9 @@
 // src/pages/Painel.tsx
 
 import { useState, useEffect } from 'react';
-import { auth } from '../config/firebase';
+import { auth, db } from '../config/firebase'; 
 import { signOut } from 'firebase/auth';
+import { collection, query, where, onSnapshot, doc } from 'firebase/firestore'; 
 
 import { ModuloAgenda } from '../components/ModuloAgenda';
 import { ModuloCaixa } from '../components/ModuloCaixa';
@@ -25,7 +26,129 @@ export function Painel({ perfil }: PainelProps) {
     return width >= 1024;
   });
 
-  // Força o navegador a bloquear totalmente qualquer tentativa de scroll lateral (eixo X)
+  // ESTADOS DO MOTOR DE NOTIFICAÇÕES (Background) e BADGES
+  const [configuracoesGlobais, setConfiguracoesGlobais] = useState<any>(null);
+  const [agendamentosHoje, setAgendamentosHoje] = useState<any[]>([]);
+  const [contasVencidas, setContasVencidas] = useState<any[]>([]); // Adicionado estado para dívidas
+
+  // 1. CARREGA AS CONFIGURAÇÕES, AGENDA DO DIA E CONTAS PARA O MOTOR DE NOTIFICAÇÕES
+  useEffect(() => {
+    if (!perfil?.companyId || perfil?.role === 'super_admin') return;
+
+    // Escuta a configuração
+    const unsubConfig = onSnapshot(doc(db, 'empresas', perfil.companyId), (docSnap) => {
+      if (docSnap.exists()) {
+        setConfiguracoesGlobais(docSnap.data());
+      }
+    });
+
+    const hoje = new Date();
+    const tzoffset = hoje.getTimezoneOffset() * 60000;
+    const dataStr = new Date(hoje.getTime() - tzoffset).toISOString().split('T')[0];
+
+    // Escuta a agenda do dia atual
+    const qAgenda = query(
+      collection(db, 'agendamentos'),
+      where('companyId', '==', perfil.companyId),
+      where('status', '==', 'pendente')
+    );
+
+    const unsubAgendamentos = onSnapshot(qAgenda, (snap) => {
+      const lista: any[] = [];
+      snap.forEach(d => {
+         const dados = d.data();
+         if (dados.dataHora && dados.dataHora.startsWith(dataStr)) {
+            lista.push({ id: d.id, ...dados });
+         }
+      });
+      setAgendamentosHoje(lista);
+    });
+
+    // Escuta as contas a pagar (Dívidas)
+    const qContas = query(
+      collection(db, 'contas_pagar'),
+      where('companyId', '==', perfil.companyId),
+      where('status', '==', 'pendente')
+    );
+
+    const unsubContas = onSnapshot(qContas, (snap) => {
+      const listaContas: any[] = [];
+      snap.forEach(d => {
+        const conta = d.data();
+        // Só joga pro estado se estiver vencendo hoje ou se já estiver atrasada
+        if (conta.vencimento <= dataStr) {
+          listaContas.push({ id: d.id, ...conta });
+        }
+      });
+      setContasVencidas(listaContas);
+    });
+
+    return () => { unsubConfig(); unsubAgendamentos(); unsubContas(); };
+  }, [perfil?.companyId, perfil?.role]);
+
+  // 2. O RELÓGIO (MOTOR DE NOTIFICAÇÕES)
+  useEffect(() => {
+    if (!configuracoesGlobais || Notification.permission !== 'granted') return;
+
+    const intervalo = setInterval(() => {
+        const agora = new Date();
+        const hora = agora.getHours().toString().padStart(2, '0');
+        const minuto = agora.getMinutes().toString().padStart(2, '0');
+        const horaAtual = `${hora}:${minuto}`;
+        const dataHoje = agora.toISOString().split('T')[0]; 
+
+        // NOTIFICAÇÃO 1: CAIXA
+        if (configuracoesGlobais.notificacaoCaixaAtiva && configuracoesGlobais.horarioFechamentoCaixa === horaAtual) {
+           const chaveCaixa = `@NotificacaoCaixa_${dataHoje}`;
+           if (!localStorage.getItem(chaveCaixa)) {
+              new Notification("💰 Fechamento de Caixa", { body: "Chegou a hora de conferir e fechar o caixa do dia!" });
+              localStorage.setItem(chaveCaixa, 'true');
+           }
+        }
+
+        // NOTIFICAÇÃO 2: PRÓXIMO ATENDIMENTO DA AGENDA
+        if (configuracoesGlobais.notificacaoAgendaAtiva && configuracoesGlobais.minutosAvisoPrevioAgenda) {
+           const minutosAviso = Number(configuracoesGlobais.minutosAvisoPrevioAgenda);
+
+           agendamentosHoje.forEach(ag => {
+              const horaAgendamento = new Date(ag.dataHora);
+              const diferencaMs = horaAgendamento.getTime() - agora.getTime();
+              const diffMinutos = Math.round(diferencaMs / 60000); 
+
+              if (diffMinutos === minutosAviso || diffMinutos === (minutosAviso - 1)) {
+                 const chaveAgenda = `@NotificacaoAgenda_${ag.id}`;
+                 if (!localStorage.getItem(chaveAgenda)) {
+                    new Notification(`Próximo Atendimento: ${ag.clienteNome}`, {
+                       body: `Serviço: ${ag.servicoNome}\nProfissional: ${ag.funcionarioEmail || 'Não Atribuído'}\nHorário: ${ag.dataHora.split('T')[1]}`
+                    });
+                    localStorage.setItem(chaveAgenda, 'true');
+                 }
+              }
+           });
+        }
+
+        // NOTIFICAÇÃO 3: DÍVIDAS / CONTAS A PAGAR
+        if (configuracoesGlobais.notificacaoDividasAtiva && configuracoesGlobais.horariosLembreteDivida && contasVencidas.length > 0) {
+          const horariosLembrete: string[] = configuracoesGlobais.horariosLembreteDivida;
+          
+          if (horariosLembrete.includes(horaAtual)) {
+            // Chave única para não disparar 2x no mesmo minuto
+            const chaveDivida = `@NotificacaoDivida_${dataHoje}_${horaAtual}`;
+            if (!localStorage.getItem(chaveDivida)) {
+              new Notification("🔴 Lembrete de Contas a Pagar", {
+                 body: `Você possui ${contasVencidas.length} conta(s) vencendo hoje ou atrasadas. Verifique o seu Caixa!`
+              });
+              localStorage.setItem(chaveDivida, 'true');
+            }
+          }
+        }
+
+    }, 30000); 
+
+    return () => clearInterval(intervalo);
+  }, [configuracoesGlobais, agendamentosHoje, contasVencidas]);
+
+
   useEffect(() => {
     const rootElement = document.getElementById('root');
     if (rootElement) {
@@ -90,7 +213,8 @@ export function Painel({ perfil }: PainelProps) {
     justifyContent: menuExpandido ? 'flex-start' : 'center', 
     gap: '10px',
     boxSizing: 'border-box' as const,
-    transition: 'background-color 0.2s'
+    transition: 'background-color 0.2s',
+    position: 'relative' as const // Necessário para a bolinha de notificação
   });
 
   const mudarAba = (aba: any) => {
@@ -99,7 +223,6 @@ export function Painel({ perfil }: PainelProps) {
   };
 
   return (
-    // Trocado width: '100vw' para '100%' para evitar estouro matemático da barra vertical
     <div style={{ display: 'flex', height: '100vh', width: '100%', fontFamily: 'sans-serif', margin: 0, backgroundColor: '#f5f6fa', overflow: 'hidden', boxSizing: 'border-box' }}>
       
       {isMobile && menuExpandido && (
@@ -152,6 +275,10 @@ export function Painel({ perfil }: PainelProps) {
                 <>
                   <button style={estiloBotaoMenu('caixa')} onClick={() => mudarAba('caixa')}>
                     <span>💰</span> {menuExpandido && <span>Caixa</span>}
+                    {/* BOLINHA VERMELHA (Só mostra se tem dívida E a aba não é o caixa) */}
+                    {contasVencidas.length > 0 && abaAtiva !== 'caixa' && (
+                      <span style={{ position: 'absolute', top: '8px', right: '8px', width: '10px', height: '10px', backgroundColor: '#e74c3c', borderRadius: '50%', boxShadow: '0 0 5px rgba(231, 76, 60, 0.8)' }} title="Contas Pendentes!" />
+                    )}
                   </button>
                   <button style={estiloBotaoMenu('estoque')} onClick={() => mudarAba('estoque')}>
                     <span>📦</span> {menuExpandido && <span>Estoque</span>}
@@ -195,7 +322,6 @@ export function Painel({ perfil }: PainelProps) {
       </aside>
 
       {/* ÁREA DE CONTEÚDO PRINCIPAL */}
-      {/* Aplicado overflowX: 'hidden' aqui também para anular qualquer vazamento dos formulários */}
       <main style={{ 
         flex: 1, 
         padding: isMobile ? '15px' : '30px', 

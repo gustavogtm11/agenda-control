@@ -42,8 +42,22 @@ export function ModuloConfiguracoes({ perfil }: ModuloConfiguracoesProps) {
   const [novoDiaBloqueado, setNovoDiaBloqueado] = useState('');
   const [mensagemLembrete, setMensagemLembrete] = useState(mensagemPadrao);
   
-  // Controle de Notificação Local
+  // Controle de Notificação - Permissão
   const [permissaoNotificacao, setPermissaoNotificacao] = useState<string>(Notification.permission);
+  
+  // Controle de Notificação - Agenda
+  const [notificacaoAgendaAtiva, setNotificacaoAgendaAtiva] = useState(true);
+  const [minutosAvisoPrevioAgenda, setMinutosAvisoPrevioAgenda] = useState<number>(30); 
+  
+  // Controle de Notificação - Caixa
+  const [notificacaoCaixaAtiva, setNotificacaoCaixaAtiva] = useState(true);
+  const [horarioFechamentoCaixa, setHorarioFechamentoCaixa] = useState('18:00');
+
+  // Controle de Notificação - Dívidas (NOVO)
+  const [notificacaoDividasAtiva, setNotificacaoDividasAtiva] = useState(true);
+  const [qtdLembretesDivida, setQtdLembretesDivida] = useState(1);
+  const [horariosLembreteDivida, setHorariosLembreteDivida] = useState<string[]>(['08:00']);
+  
   const [salvando, setSalvando] = useState(false);
 
   useEffect(() => {
@@ -58,6 +72,19 @@ export function ModuloConfiguracoes({ perfil }: ModuloConfiguracoesProps) {
                 if (dados.horarioAlmoco) setAlmoco(dados.horarioAlmoco);
                 if (dados.diasBloqueados) setDiasBloqueados(dados.diasBloqueados);
                 if (dados.mensagemLembrete) setMensagemLembrete(dados.mensagemLembrete);
+                
+                // Agenda
+                if (dados.notificacaoAgendaAtiva !== undefined) setNotificacaoAgendaAtiva(dados.notificacaoAgendaAtiva);
+                if (dados.minutosAvisoPrevioAgenda !== undefined) setMinutosAvisoPrevioAgenda(dados.minutosAvisoPrevioAgenda);
+                
+                // Caixa
+                if (dados.notificacaoCaixaAtiva !== undefined) setNotificacaoCaixaAtiva(dados.notificacaoCaixaAtiva);
+                if (dados.horarioFechamentoCaixa) setHorarioFechamentoCaixa(dados.horarioFechamentoCaixa);
+
+                // Dívidas
+                if (dados.notificacaoDividasAtiva !== undefined) setNotificacaoDividasAtiva(dados.notificacaoDividasAtiva);
+                if (dados.qtdLembretesDivida) setQtdLembretesDivida(dados.qtdLembretesDivida);
+                if (dados.horariosLembreteDivida) setHorariosLembreteDivida(dados.horariosLembreteDivida);
             }
         } catch (error) {
             console.error("Erro ao carregar configurações:", error);
@@ -105,6 +132,22 @@ export function ModuloConfiguracoes({ perfil }: ModuloConfiguracoesProps) {
     setDiasBloqueados(diasBloqueados.filter(d => d !== diaRemover));
   };
 
+  // Lógica para adicionar/remover campos de horários de dívidas conforme o select
+  const handleQtdLembretesChange = (novaQtd: number) => {
+    setQtdLembretesDivida(novaQtd);
+    const novosHorarios = [...horariosLembreteDivida];
+    while (novosHorarios.length < novaQtd) {
+        novosHorarios.push('12:00'); // Padrão se aumentar
+    }
+    setHorariosLembreteDivida(novosHorarios.slice(0, novaQtd));
+  };
+
+  const atualizarHorarioDivida = (index: number, valor: string) => {
+    const novos = [...horariosLembreteDivida];
+    novos[index] = valor;
+    setHorariosLembreteDivida(novos);
+  };
+
   async function salvarConfiguracoes(e: React.FormEvent) {
     e.preventDefault();
     if (!perfil?.companyId) return;
@@ -115,7 +158,14 @@ export function ModuloConfiguracoes({ perfil }: ModuloConfiguracoesProps) {
             horariosFuncionamento: horarios,
             horarioAlmoco: almoco,
             diasBloqueados: diasBloqueados,
-            mensagemLembrete: mensagemLembrete
+            mensagemLembrete: mensagemLembrete,
+            notificacaoAgendaAtiva,
+            minutosAvisoPrevioAgenda,
+            notificacaoCaixaAtiva,
+            horarioFechamentoCaixa,
+            notificacaoDividasAtiva, // Salva novo
+            qtdLembretesDivida,      // Salva novo
+            horariosLembreteDivida   // Salva novo
         }, { merge: true });
         alert("Configurações salvas com sucesso!");
     } catch (error) {
@@ -148,7 +198,6 @@ export function ModuloConfiguracoes({ perfil }: ModuloConfiguracoesProps) {
         <form onSubmit={salvarConfiguracoes}>
             {abaAtiva === 'expediente' && (
                 <div style={{ animation: 'fadeIn 0.3s' }}>
-                    {/* ... (Todo o conteúdo original da aba expediente) ... */}
                     <div style={{ backgroundColor: 'var(--bg-card-item)', padding: '20px', borderRadius: '8px', border: '1px solid var(--borda)', marginBottom: '20px' }}>
                         <h4 style={{ margin: '0 0 15px 0' }}>🕒 Horários de Atendimento</h4>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
@@ -218,38 +267,107 @@ export function ModuloConfiguracoes({ perfil }: ModuloConfiguracoesProps) {
                 </div>
             )}
 
-            {/* ABA: NOTIFICAÇÕES (NOVA) */}
             {abaAtiva === 'notificacoes' && (
-                <div style={{ backgroundColor: 'var(--bg-card-item)', padding: '20px', borderRadius: '8px', border: '1px solid var(--borda)', marginBottom: '20px', animation: 'fadeIn 0.3s' }}>
-                    <h4 style={{ margin: '0 0 15px 0' }}>🔔 Alertas de Contas a Pagar</h4>
-                    <p style={{ fontSize: '14px', color: 'var(--text-secundario)', marginBottom: '20px' }}>
-                        Permita que o navegador envie alertas quando você tiver contas fixas ou avulsas vencendo hoje ou em atraso ao abrir o sistema.
-                    </p>
-
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '15px', background: 'var(--bg-input)', borderRadius: '6px', border: '1px solid var(--borda)' }}>
-                        <div>
-                            <strong style={{ display: 'block', fontSize: '16px' }}>Permissão do Navegador</strong>
-                            <small style={{ color: permissaoNotificacao === 'granted' ? '#27ae60' : '#e74c3c', fontWeight: 'bold' }}>
-                                Status Atual: {permissaoNotificacao === 'granted' ? 'Autorizado ✅' : permissaoNotificacao === 'denied' ? 'Bloqueado ❌' : 'Não Solicitado ⚠️'}
-                            </small>
-                            <p style={{ margin: '5px 0 0 0', fontSize: '12px', color: 'var(--text-secundario)' }}>
-                                *No iPhone/iPad, você deve adicionar o site à "Tela de Início" antes de permitir.
-                            </p>
+                <div style={{ animation: 'fadeIn 0.3s' }}>
+                    
+                    {/* Alertas do Navegador */}
+                    <div style={{ backgroundColor: 'var(--bg-card-item)', padding: '20px', borderRadius: '8px', border: '1px solid var(--borda)', marginBottom: '20px' }}>
+                        <h4 style={{ margin: '0 0 15px 0' }}>📱 Permissão do Dispositivo</h4>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '15px', background: 'var(--bg-input)', borderRadius: '6px', border: '1px solid var(--borda)', flexWrap: 'wrap', gap: '10px' }}>
+                            <div>
+                                <small style={{ color: permissaoNotificacao === 'granted' ? '#27ae60' : '#e74c3c', fontWeight: 'bold', fontSize: '14px' }}>
+                                    Status Atual: {permissaoNotificacao === 'granted' ? 'Autorizado ✅' : permissaoNotificacao === 'denied' ? 'Bloqueado ❌' : 'Não Solicitado ⚠️'}
+                                </small>
+                                <p style={{ margin: '5px 0 0 0', fontSize: '12px', color: 'var(--text-secundario)' }}>
+                                    *No iPhone/iPad, você deve adicionar o site à "Tela de Início" antes de permitir.
+                                </p>
+                            </div>
+                            <button 
+                                type="button" 
+                                onClick={solicitarPermissaoNotificacao} 
+                                disabled={permissaoNotificacao === 'granted'}
+                                style={{ padding: '10px 15px', backgroundColor: permissaoNotificacao === 'granted' ? '#95a5a6' : '#2980b9', color: 'white', border: 'none', borderRadius: '4px', cursor: permissaoNotificacao === 'granted' ? 'not-allowed' : 'pointer', fontWeight: 'bold' }}
+                            >
+                                {permissaoNotificacao === 'granted' ? 'Já Ativado' : 'Ativar Alertas'}
+                            </button>
                         </div>
-                        <button 
-                            type="button" 
-                            onClick={solicitarPermissaoNotificacao} 
-                            disabled={permissaoNotificacao === 'granted'}
-                            style={{ padding: '10px 15px', backgroundColor: permissaoNotificacao === 'granted' ? '#95a5a6' : '#2980b9', color: 'white', border: 'none', borderRadius: '4px', cursor: permissaoNotificacao === 'granted' ? 'not-allowed' : 'pointer', fontWeight: 'bold' }}
-                        >
-                            {permissaoNotificacao === 'granted' ? 'Já Ativado' : 'Ativar Alertas'}
-                        </button>
                     </div>
+
+                    {/* Notificações de Agendamentos */}
+                    <div style={{ backgroundColor: 'var(--bg-card-item)', padding: '20px', borderRadius: '8px', border: '1px solid var(--borda)', marginBottom: '20px' }}>
+                        <h4 style={{ margin: '0 0 15px 0' }}>📅 Alertas de Próximo Atendimento</h4>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
+                                <input type="checkbox" checked={notificacaoAgendaAtiva} onChange={(e) => setNotificacaoAgendaAtiva(e.target.checked)} style={{ width: '18px', height: '18px' }} /> 
+                                Avisar o profissional antes do cliente chegar
+                            </label>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', opacity: notificacaoAgendaAtiva ? 1 : 0.4, pointerEvents: notificacaoAgendaAtiva ? 'auto' : 'none' }}>
+                                <span style={{ fontSize: '13px', color: 'var(--text-secundario)' }}>Avisar com quantos minutos de antecedência?</span>
+                                <select 
+                                    value={minutosAvisoPrevioAgenda} 
+                                    onChange={(e) => setMinutosAvisoPrevioAgenda(Number(e.target.value))} 
+                                    style={{...inputStyle, padding: '6px'}}
+                                >
+                                    <option value={15}>15 Minutos antes</option>
+                                    <option value={30}>30 Minutos antes</option>
+                                    <option value={60}>1 Hora antes</option>
+                                    <option value={120}>2 Horas antes</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Notificação de Fechamento de Caixa */}
+                    <div style={{ backgroundColor: 'var(--bg-card-item)', padding: '20px', borderRadius: '8px', border: '1px solid var(--borda)', marginBottom: '20px' }}>
+                        <h4 style={{ margin: '0 0 15px 0' }}>💰 Alerta de Fechamento de Caixa</h4>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
+                                <input type="checkbox" checked={notificacaoCaixaAtiva} onChange={(e) => setNotificacaoCaixaAtiva(e.target.checked)} style={{ width: '18px', height: '18px' }} /> 
+                                Lembrete diário para fechar o caixa
+                            </label>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', opacity: notificacaoCaixaAtiva ? 1 : 0.4, pointerEvents: notificacaoCaixaAtiva ? 'auto' : 'none' }}>
+                                <span style={{ fontSize: '13px', color: 'var(--text-secundario)' }}>Horário do lembrete:</span>
+                                <input type="time" value={horarioFechamentoCaixa} onChange={(e) => setHorarioFechamentoCaixa(e.target.value)} style={{...inputStyle, padding: '6px', width: 'auto'}} />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Notificação de Dívidas / Contas a Pagar (NOVO) */}
+                    <div style={{ backgroundColor: 'var(--bg-card-item)', padding: '20px', borderRadius: '8px', border: '1px solid var(--borda)', marginBottom: '20px' }}>
+                        <h4 style={{ margin: '0 0 15px 0', color: '#e74c3c' }}>🔴 Vencimento de Dívidas (Contas a Pagar)</h4>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
+                                <input type="checkbox" checked={notificacaoDividasAtiva} onChange={(e) => setNotificacaoDividasAtiva(e.target.checked)} style={{ width: '18px', height: '18px' }} /> 
+                                Avisar sobre contas vencendo no dia ou atrasadas
+                            </label>
+                            
+                            <div style={{ opacity: notificacaoDividasAtiva ? 1 : 0.4, pointerEvents: notificacaoDividasAtiva ? 'auto' : 'none', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                <div>
+                                    <span style={{ fontSize: '13px', color: 'var(--text-secundario)', display: 'block', marginBottom: '5px' }}>Quantas vezes notificar ao dia?</span>
+                                    <select value={qtdLembretesDivida} onChange={(e) => handleQtdLembretesChange(Number(e.target.value))} style={{...inputStyle, width: '120px', padding: '6px'}}>
+                                        <option value={1}>1 vez</option>
+                                        <option value={2}>2 vezes</option>
+                                        <option value={3}>3 vezes</option>
+                                    </select>
+                                </div>
+
+                                <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', marginTop: '5px' }}>
+                                    {horariosLembreteDivida.map((horario, index) => (
+                                        <div key={index} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <span style={{ fontSize: '13px' }}>Horário {index + 1}:</span>
+                                            <input type="time" value={horario} onChange={(e) => atualizarHorarioDivida(index, e.target.value)} style={{...inputStyle, padding: '6px', width: 'auto'}} />
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
             )}
 
             <button type="submit" disabled={salvando} style={{ padding: '12px 24px', backgroundColor: '#2980b9', color: 'white', border: 'none', cursor: salvando ? 'not-allowed' : 'pointer', borderRadius: '6px', fontWeight: 'bold', fontSize: '15px', width: '100%' }}>
-                {salvando ? 'Salvando...' : 'Salvar Configurações'}
+                {salvando ? 'Salvando...' : '💾 Salvar Configurações'}
             </button>
         </form>
     </div>

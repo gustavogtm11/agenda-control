@@ -1,6 +1,6 @@
 // src/components/ModuloCaixa.tsx
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { db } from '../config/firebase';
 import { collection, addDoc, query, where, onSnapshot, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 
@@ -13,7 +13,16 @@ interface Transacao {
 }
 
 interface ContaPagar {
-  id: string; descricao: string; valor: number; vencimento: string; tipoConta: 'fixa' | 'avulsa'; status: 'pendente' | 'paga'; dataPagamento?: string;
+  id: string; 
+  descricao: string; 
+  valor: number; 
+  vencimento: string; 
+  diaVencimento?: number; // Exclusivo para contas fixas
+  tipoConta: 'fixa' | 'avulsa'; 
+  status: 'pendente' | 'paga'; 
+  dataPagamento?: string;
+  parcelaAtual?: number; // Para avulsas parceladas
+  totalParcelas?: number; // Para avulsas parceladas
 }
 
 type FiltroTempo = 'dia' | 'semana' | 'mes' | 'ano' | 'tudo';
@@ -28,13 +37,15 @@ export function ModuloCaixa({ perfil }: ModuloCaixaProps) {
   const [tipoTransacao, setTipoTransacao] = useState<'entrada' | 'saida'>('entrada');
   const [filtroTempo, setFiltroTempo] = useState<FiltroTempo>('mes');
 
-  // Estados - Contas
+  // Estados - Contas (Formulário Atualizado)
   const [contas, setContas] = useState<ContaPagar[]>([]);
+  const [idContaEdicao, setIdContaEdicao] = useState<string | null>(null);
   const [descConta, setDescConta] = useState('');
   const [valorConta, setValorConta] = useState(0);
-  const [vencimentoConta, setVencimentoConta] = useState('');
-  
-  const notificacaoEnviadaRef = useRef(false);
+  const [vencimentoConta, setVencimentoConta] = useState(''); // Para Avulsas
+  const [diaVencimentoConta, setDiaVencimentoConta] = useState<number | ''>(''); // Para Fixas
+  const [totalParcelasConta, setTotalParcelasConta] = useState<number>(1);
+  const [parcelaAtualConta, setParcelaAtualConta] = useState<number>(1);
 
   useEffect(() => {
     if (!perfil?.companyId) return;
@@ -53,31 +64,24 @@ export function ModuloCaixa({ perfil }: ModuloCaixaProps) {
       const lista: ContaPagar[] = [];
       snapshot.forEach((doc) => lista.push({ id: doc.id, ...doc.data() } as ContaPagar));
       setContas(lista);
-      verificarNotificacoes(lista);
     });
 
     return () => { desativarFinancas(); desativarContas(); };
   }, [perfil?.companyId]);
 
-  // Lógica de Notificações de Vencimento
-  const verificarNotificacoes = (listaContas: ContaPagar[]) => {
-    if (notificacaoEnviadaRef.current || Notification.permission !== 'granted') return;
-    
-    const hoje = new Date().toISOString().split('T')[0];
-    const contasPendentes = listaContas.filter(c => c.status === 'pendente');
-    
-    const vencendoHoje = contasPendentes.filter(c => c.vencimento === hoje);
-    const atrasadas = contasPendentes.filter(c => c.vencimento < hoje);
+  /* ----- VERIFICAÇÃO DE BADGES (Bolinhas Vermelhas) COM FUSO HORÁRIO CORRETO ----- */
+  const agora = new Date();
+  const tzoffset = agora.getTimezoneOffset() * 60000; 
+  const hojeStr = new Date(agora.getTime() - tzoffset).toISOString().split('T')[0];
 
-    if (vencendoHoje.length > 0 || atrasadas.length > 0) {
-      const titulo = "Avisos do Caixa 💰";
-      let corpo = "";
-      if (vencendoHoje.length > 0) corpo += `\n- ${vencendoHoje.length} conta(s) vencendo HOJE.`;
-      if (atrasadas.length > 0) corpo += `\n- ${atrasadas.length} conta(s) ATRASADA(S).`;
-      
-      new Notification(titulo, { body: corpo });
-      notificacaoEnviadaRef.current = true; // Garante que só apita 1x por sessão
-    }
+  const fixasComDivida = contas.some(c => c.tipoConta === 'fixa' && c.status === 'pendente' && c.vencimento <= hojeStr);
+  const avulsasComDivida = contas.some(c => c.tipoConta === 'avulsa' && c.status === 'pendente' && c.vencimento <= hojeStr);
+
+  const renderBadge = (temBadge: boolean) => {
+    if (!temBadge) return null;
+    return (
+      <span style={{ display: 'inline-block', width: '10px', height: '10px', backgroundColor: '#e74c3c', borderRadius: '50%', marginLeft: '8px', verticalAlign: 'middle', boxShadow: '0 0 5px rgba(231, 76, 60, 0.8)' }}></span>
+    );
   };
 
   /* ----- LÓGICA DO EXTRATO ----- */
@@ -117,30 +121,121 @@ export function ModuloCaixa({ perfil }: ModuloCaixaProps) {
   const saldoTotal = totalEntradas - totalSaidas;
 
   /* ----- LÓGICA DE CONTAS A PAGAR ----- */
+  
+  // Utilizado apenas na CRIAÇÃO de uma nova conta fixa
+  function calcularProximoVencimentoCriacao(dia: number) {
+    const hoje = new Date();
+    let mes = hoje.getMonth();
+    let ano = hoje.getFullYear();
+    
+    // Se o dia do vencimento já passou neste mês, joga para o próximo mês
+    if (hoje.getDate() > dia) {
+        mes++;
+        if (mes > 11) { mes = 0; ano++; }
+    }
+    
+    return `${ano}-${String(mes + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+  }
+
+  // NOVA LÓGICA: Utilizado apenas ao PAGAR uma conta fixa, forçando +1 mês em relação à conta paga!
+  function calcularProximoVencimentoAposPagamento(vencimentoAtual: string, diaFixo: number) {
+      let [anoStr, mesStr] = vencimentoAtual.split('-');
+      let ano = parseInt(anoStr);
+      let mes = parseInt(mesStr); // 1 a 12
+
+      mes++;
+      if (mes > 12) {
+          mes = 1;
+          ano++;
+      }
+      return `${ano}-${String(mes).padStart(2, '0')}-${String(diaFixo).padStart(2, '0')}`;
+  }
+
   async function registrarConta(e: React.FormEvent) {
     e.preventDefault();
-    if (!descConta || valorConta <= 0 || !vencimentoConta) return alert("Preencha todos os campos da conta!");
+    if (!descConta || valorConta <= 0) return alert("Preencha a descrição e o valor!");
     
+    if (abaAtiva === 'fixas' && (!diaVencimentoConta || diaVencimentoConta < 1 || diaVencimentoConta > 31)) {
+        return alert("Informe um dia de vencimento válido (1 a 31) para a conta fixa!");
+    }
+    if (abaAtiva === 'avulsas' && !vencimentoConta) {
+        return alert("Informe a data do primeiro vencimento!");
+    }
+
+    const dataVencimentoFinal = abaAtiva === 'fixas' 
+        ? calcularProximoVencimentoCriacao(Number(diaVencimentoConta)) 
+        : vencimentoConta;
+
     try {
-      await addDoc(collection(db, 'contas_pagar'), {
-        descricao: descConta,
-        valor: Number(valorConta),
-        vencimento: vencimentoConta,
-        tipoConta: abaAtiva === 'fixas' ? 'fixa' : 'avulsa',
-        status: 'pendente',
-        companyId: perfil?.companyId
-      });
-      setDescConta(''); setValorConta(0); setVencimentoConta('');
-      alert("Conta registrada com sucesso!");
-    } catch (erro) { alert("Erro ao registrar a conta."); }
+      if (idContaEdicao) {
+          // Editando conta existente
+          await updateDoc(doc(db, 'contas_pagar', idContaEdicao), {
+              descricao: descConta,
+              valor: Number(valorConta),
+              vencimento: dataVencimentoFinal,
+              diaVencimento: abaAtiva === 'fixas' ? Number(diaVencimentoConta) : null,
+              totalParcelas: abaAtiva === 'avulsas' ? Number(totalParcelasConta) : null,
+              parcelaAtual: abaAtiva === 'avulsas' ? Number(parcelaAtualConta) : null
+          });
+          alert("Conta atualizada com sucesso!");
+      } else {
+          // Criando nova conta
+          await addDoc(collection(db, 'contas_pagar'), {
+            descricao: descConta,
+            valor: Number(valorConta),
+            vencimento: dataVencimentoFinal,
+            tipoConta: abaAtiva === 'fixas' ? 'fixa' : 'avulsa',
+            diaVencimento: abaAtiva === 'fixas' ? Number(diaVencimentoConta) : null,
+            totalParcelas: abaAtiva === 'avulsas' ? Number(totalParcelasConta) : null,
+            parcelaAtual: abaAtiva === 'avulsas' ? 1 : null,
+            status: 'pendente',
+            companyId: perfil?.companyId
+          });
+          alert("Conta registrada com sucesso!");
+      }
+      
+      limparFormularioConta();
+    } catch (erro) { alert("Erro ao salvar a conta."); }
+  }
+
+  function limparFormularioConta() {
+    setDescConta(''); 
+    setValorConta(0); 
+    setVencimentoConta('');
+    setDiaVencimentoConta('');
+    setTotalParcelasConta(1);
+    setParcelaAtualConta(1);
+    setIdContaEdicao(null);
+  }
+
+  function prepararEdicaoConta(conta: ContaPagar) {
+    setIdContaEdicao(conta.id);
+    setDescConta(conta.descricao);
+    setValorConta(conta.valor);
+    
+    if (conta.tipoConta === 'fixa') {
+        setDiaVencimentoConta(conta.diaVencimento || 1);
+        setAbaAtiva('fixas');
+    } else {
+        setVencimentoConta(conta.vencimento);
+        setTotalParcelasConta(conta.totalParcelas || 1);
+        setParcelaAtualConta(conta.parcelaAtual || 1);
+        setAbaAtiva('avulsas');
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   async function pagarConta(conta: ContaPagar) {
     if (!window.confirm(`Deseja confirmar o pagamento de ${conta.descricao} e lançar no Extrato?`)) return;
     try {
       // 1. Lança a saída no Extrato
+      let infoParcela = '';
+      if (conta.tipoConta === 'avulsa' && conta.totalParcelas && conta.totalParcelas > 1) {
+          infoParcela = `(Parc. ${conta.parcelaAtual}/${conta.totalParcelas})`;
+      }
+
       await addDoc(collection(db, 'financas'), {
-        descricao: `Pagamento: ${conta.descricao} (${conta.tipoConta})`,
+        descricao: `Pgto: ${conta.descricao} ${infoParcela}`,
         valor: conta.valor,
         tipo: 'saida',
         data: new Date().toISOString(),
@@ -148,40 +243,63 @@ export function ModuloCaixa({ perfil }: ModuloCaixaProps) {
         origem: 'contas'
       });
 
-      // 2. Muda o status para paga
+      // 2. Muda o status da atual para paga
       await updateDoc(doc(db, 'contas_pagar', conta.id), {
         status: 'paga', dataPagamento: new Date().toISOString()
       });
 
-      // 3. Se for FIXA, já cria a previsão para o próximo mês automaticamente
+      // 3. Lógica de gerar a próxima cobrança
       if (conta.tipoConta === 'fixa') {
-        const dataVenc = new Date(conta.vencimento + 'T12:00:00');
-        dataVenc.setMonth(dataVenc.getMonth() + 1);
-        const proximoVencimento = dataVenc.toISOString().split('T')[0];
+        // Usa a NOVA função de gerar vencimento com base na conta recém-paga!
+        const proximoVenc = calcularProximoVencimentoAposPagamento(conta.vencimento, conta.diaVencimento || parseInt(conta.vencimento.split('-')[2]));
         
         await addDoc(collection(db, 'contas_pagar'), {
-            descricao: conta.descricao, valor: conta.valor, vencimento: proximoVencimento, tipoConta: 'fixa', status: 'pendente', companyId: perfil?.companyId
+            descricao: conta.descricao, valor: conta.valor, diaVencimento: conta.diaVencimento, vencimento: proximoVenc, tipoConta: 'fixa', status: 'pendente', companyId: perfil?.companyId
         });
-        alert("Conta paga! O extrato foi atualizado e a cobrança do próximo mês já foi gerada.");
-      } else {
-        alert("Conta paga! O extrato foi atualizado.");
+        alert("Conta fixa paga! A cobrança do próximo mês já foi gerada.");
+        
+      } else if (conta.tipoConta === 'avulsa') {
+          // Se for avulsa e ainda tiver parcelas pela frente
+          if (conta.totalParcelas && conta.parcelaAtual && conta.parcelaAtual < conta.totalParcelas) {
+              const dataVenc = new Date(conta.vencimento + 'T12:00:00');
+              dataVenc.setMonth(dataVenc.getMonth() + 1);
+              const proximoVencimento = dataVenc.toISOString().split('T')[0];
+
+              await addDoc(collection(db, 'contas_pagar'), {
+                descricao: conta.descricao, 
+                valor: conta.valor, 
+                vencimento: proximoVencimento, 
+                tipoConta: 'avulsa', 
+                status: 'pendente', 
+                companyId: perfil?.companyId,
+                parcelaAtual: conta.parcelaAtual + 1,
+                totalParcelas: conta.totalParcelas
+            });
+            alert(`Parcela ${conta.parcelaAtual}/${conta.totalParcelas} paga! Próxima parcela gerada.`);
+          } else {
+            alert("Conta avulsa paga e finalizada com sucesso!");
+          }
       }
     } catch (e) { alert("Erro ao processar pagamento."); }
   }
 
   async function excluirConta(id: string) {
-    if (window.confirm("Excluir este registro de conta?")) {
+    if (window.confirm("Tem certeza que deseja excluir este registro?")) {
       await deleteDoc(doc(db, 'contas_pagar', id));
+      if (idContaEdicao === id) limparFormularioConta();
     }
   }
 
   // Estilos
   const inputStyle = { padding: '10px', borderRadius: '4px', border: '1px solid var(--borda)', background: 'var(--bg-input)', color: 'var(--text-principal)' };
+  
   const tabStyle = (aba: string) => ({
     padding: '12px 20px', cursor: 'pointer', border: 'none', background: 'transparent',
     borderBottom: abaAtiva === aba ? '3px solid #2980b9' : '3px solid transparent',
-    color: abaAtiva === aba ? '#2980b9' : 'var(--text-secundario)', fontWeight: 'bold', flex: '1 1 auto', textAlign: 'center' as const
+    color: abaAtiva === aba ? '#2980b9' : 'var(--text-secundario)', fontWeight: 'bold', flex: '1 1 auto', textAlign: 'center' as const,
+    display: 'flex', alignItems: 'center', justifyContent: 'center'
   });
+  
   const estiloFiltro = (filtro: FiltroTempo) => ({
     padding: '6px 12px', borderRadius: '20px', border: '1px solid var(--borda)',
     background: filtroTempo === filtro ? '#2980b9' : 'var(--bg-input)', color: filtroTempo === filtro ? 'white' : 'var(--text-principal)',
@@ -195,30 +313,73 @@ export function ModuloCaixa({ perfil }: ModuloCaixaProps) {
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'fadeIn 0.3s' }}>
-        <form onSubmit={registrarConta} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', padding: '15px', background: 'var(--bg-card-item)', borderRadius: '6px', border: '1px solid var(--borda)' }}>
-            <input type="text" placeholder="Nome da Conta (Ex: Luz, Internet, Suprimentos)" value={descConta} onChange={e => setDescConta(e.target.value)} style={{ ...inputStyle, flex: '2 1 200px' }} />
-            <input type="number" placeholder="Valor (R$)" value={valorConta || ''} onChange={e => setValorConta(Number(e.target.value))} style={{ ...inputStyle, flex: '1 1 100px' }} />
-            <div style={{ flex: '1 1 130px', display: 'flex', flexDirection: 'column' }}>
-                <span style={{ fontSize: '11px', color: 'var(--text-secundario)', marginBottom: '2px' }}>Vencimento</span>
-                <input type="date" value={vencimentoConta} onChange={e => setVencimentoConta(e.target.value)} style={{ ...inputStyle, width: '100%' }} />
+        
+        {/* AVISO DE EDIÇÃO DE CONTA */}
+        {idContaEdicao && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f39c12', padding: '10px', borderRadius: '6px', color: 'white', fontWeight: 'bold' }}>
+                <span>✏️ Editando: {descConta}</span>
+                <button onClick={limparFormularioConta} style={{ background: 'transparent', border: '1px solid white', color: 'white', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer' }}>Cancelar Edição</button>
             </div>
-            <button type="submit" style={{ padding: '10px 15px', background: '#34495e', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>+ Adicionar</button>
+        )}
+
+        <form onSubmit={registrarConta} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', padding: '15px', background: 'var(--bg-card-item)', borderRadius: '6px', border: '1px solid var(--borda)' }}>
+            <input type="text" placeholder="Nome da Conta (Ex: Luz, Internet, Fornecedor)" value={descConta} onChange={e => setDescConta(e.target.value)} style={{ ...inputStyle, flex: '2 1 200px' }} />
+            
+            <div style={{ flex: '1 1 100px', display: 'flex', flexDirection: 'column' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-secundario)', marginBottom: '2px' }}>Valor da Parcela (R$)</span>
+                <input type="number" step="0.01" placeholder="R$" value={valorConta || ''} onChange={e => setValorConta(Number(e.target.value))} style={{ ...inputStyle, width: '100%' }} />
+            </div>
+
+            {/* SE FOR CONTA FIXA: MOSTRA APENAS O DIA */}
+            {tipoFiltrar === 'fixa' ? (
+                <div style={{ flex: '1 1 100px', display: 'flex', flexDirection: 'column' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--text-secundario)', marginBottom: '2px' }}>Dia do Vencimento</span>
+                    <input type="number" min="1" max="31" placeholder="Ex: 5" value={diaVencimentoConta} onChange={e => setDiaVencimentoConta(Number(e.target.value))} style={{ ...inputStyle, width: '100%' }} />
+                </div>
+            ) : (
+            /* SE FOR CONTA AVULSA: MOSTRA DATA COMPLETA E PARCELAS */
+                <>
+                    <div style={{ flex: '1 1 130px', display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontSize: '11px', color: 'var(--text-secundario)', marginBottom: '2px' }}>1º Vencimento</span>
+                        <input type="date" value={vencimentoConta} onChange={e => setVencimentoConta(e.target.value)} style={{ ...inputStyle, width: '100%' }} />
+                    </div>
+                    <div style={{ flex: '1 1 100px', display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontSize: '11px', color: 'var(--text-secundario)', marginBottom: '2px' }}>Qtd. de Parcelas</span>
+                        <input type="number" min="1" value={totalParcelasConta} onChange={e => setTotalParcelasConta(Number(e.target.value))} style={{ ...inputStyle, width: '100%' }} title="Digite 1 se for à vista" />
+                    </div>
+                </>
+            )}
+            
+            <div style={{ flex: '1 1 100%', display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
+                <button type="submit" style={{ padding: '10px 20px', background: idContaEdicao ? '#e67e22' : '#34495e', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
+                    {idContaEdicao ? 'Atualizar Conta' : '+ Adicionar Conta'}
+                </button>
+            </div>
         </form>
 
         <div>
             <h4 style={{ color: '#e74c3c' }}>🔴 Pendentes</h4>
             {pendentes.length === 0 ? <p style={{ fontSize: '13px', color: 'var(--text-secundario)' }}>Tudo em dia!</p> : pendentes.map(c => {
-                const atrasada = c.vencimento < new Date().toISOString().split('T')[0];
+                const atrasada = c.vencimento < hojeStr;
+                const venceHoje = c.vencimento === hojeStr;
+                const infoParcela = c.tipoConta === 'avulsa' && c.totalParcelas && c.totalParcelas > 1 ? `(Parc. ${c.parcelaAtual}/${c.totalParcelas})` : '';
+
                 return (
-                <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px', background: atrasada ? '#fdedec' : 'var(--bg-input)', border: `1px solid ${atrasada ? '#e74c3c' : 'var(--borda)'}`, borderRadius: '6px', marginBottom: '8px', flexWrap: 'wrap', gap: '10px' }}>
+                <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px', background: atrasada || venceHoje ? '#fdedec' : 'var(--bg-input)', border: `1px solid ${atrasada || venceHoje ? '#e74c3c' : 'var(--borda)'}`, borderRadius: '6px', marginBottom: '8px', flexWrap: 'wrap', gap: '10px' }}>
                     <div>
-                        <strong style={{ display: 'block', color: 'var(--text-principal)' }}>{c.descricao}</strong>
-                        <small style={{ color: atrasada ? '#e74c3c' : 'var(--text-secundario)', fontWeight: atrasada ? 'bold' : 'normal' }}>Vence em: {c.vencimento.split('-').reverse().join('/')} {atrasada && '(ATRASADA)'}</small>
+                        <strong style={{ display: 'block', color: 'var(--text-principal)' }}>{c.descricao} <span style={{fontSize: '13px', color: 'var(--text-secundario)'}}>{infoParcela}</span></strong>
+                        <small style={{ color: atrasada || venceHoje ? '#e74c3c' : 'var(--text-secundario)', fontWeight: atrasada || venceHoje ? 'bold' : 'normal' }}>
+                            Vence em: {c.vencimento.split('-').reverse().join('/')} 
+                            {atrasada && ' (ATRASADA)'}
+                            {venceHoje && ' (VENCE HOJE)'}
+                            {c.tipoConta === 'fixa' && c.diaVencimento && ` • Fixa no dia: ${c.diaVencimento}`}
+                        </small>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <span style={{ fontWeight: 'bold', color: 'var(--text-principal)' }}>R$ {c.valor.toFixed(2)}</span>
                         <button onClick={() => pagarConta(c)} style={{ background: '#27ae60', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>Pagar</button>
-                        <button onClick={() => excluirConta(c.id)} style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}>🗑️</button>
+                        <button onClick={() => prepararEdicaoConta(c)} style={{ background: '#f39c12', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>✏️</button>
+                        <button onClick={() => excluirConta(c.id)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '16px' }}>🗑️</button>
                     </div>
                 </div>
             )})}
@@ -229,10 +390,15 @@ export function ModuloCaixa({ perfil }: ModuloCaixaProps) {
             {pagas.length === 0 ? <p style={{ fontSize: '13px', color: 'var(--text-secundario)' }}>Nenhuma conta paga registrada.</p> : pagas.map(c => (
                 <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px', background: 'var(--bg-card)', border: '1px solid var(--borda)', borderRadius: '6px', marginBottom: '8px', opacity: 0.7 }}>
                     <div>
-                        <strong style={{ display: 'block', textDecoration: 'line-through' }}>{c.descricao}</strong>
+                        <strong style={{ display: 'block', textDecoration: 'line-through' }}>
+                            {c.descricao} {c.tipoConta === 'avulsa' && c.totalParcelas && c.totalParcelas > 1 ? `(Parc. ${c.parcelaAtual}/${c.totalParcelas})` : ''}
+                        </strong>
                         <small>Paga em: {c.dataPagamento ? new Date(c.dataPagamento).toLocaleDateString() : 'N/D'}</small>
                     </div>
-                    <span style={{ fontWeight: 'bold' }}>R$ {c.valor.toFixed(2)}</span>
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center'}}>
+                        <span style={{ fontWeight: 'bold' }}>R$ {c.valor.toFixed(2)}</span>
+                        <button onClick={() => excluirConta(c.id)} style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}>🗑️</button>
+                    </div>
                 </div>
             ))}
         </div>
@@ -245,9 +411,15 @@ export function ModuloCaixa({ perfil }: ModuloCaixaProps) {
       <h3 style={{ marginTop: 0 }}>💼 Financeiro</h3>
 
       <div style={{ display: 'flex', borderBottom: '1px solid var(--borda)', marginBottom: '25px', overflowX: 'auto' }}>
-        <button onClick={() => setAbaAtiva('extrato')} style={tabStyle('extrato')}>📊 Extrato Geral</button>
-        <button onClick={() => setAbaAtiva('fixas')} style={tabStyle('fixas')}>🔁 Contas Fixas</button>
-        <button onClick={() => setAbaAtiva('avulsas')} style={tabStyle('avulsas')}>🛒 Contas Avulsas</button>
+        <button onClick={() => setAbaAtiva('extrato')} style={tabStyle('extrato')}>
+          📊 Extrato Geral
+        </button>
+        <button onClick={() => setAbaAtiva('fixas')} style={tabStyle('fixas')}>
+          🔁 Contas Fixas {renderBadge(fixasComDivida)}
+        </button>
+        <button onClick={() => setAbaAtiva('avulsas')} style={tabStyle('avulsas')}>
+          🛒 Contas Avulsas {renderBadge(avulsasComDivida)}
+        </button>
       </div>
 
       {abaAtiva === 'extrato' && (

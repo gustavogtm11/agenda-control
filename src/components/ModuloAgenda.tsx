@@ -512,7 +512,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
       }
     }
 
-    // Fechar e limpar formulário
     setCliente(''); setServicoIdsSelecionados([]); setEmailFuncionarioSelecionado(''); setIdEmEdicao(null); setIsEncaixeAtivo(false);
     setDataVisaoDiaria(dataForm); 
     setMostrarFormulario(false);
@@ -526,7 +525,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     
     setServicoIdsSelecionados(agenda.servicoIds || (agenda.servicoId ? [agenda.servicoId] : []));
     setEmailFuncionarioSelecionado(agenda.funcionarioEmail || '');
-    setMostrarFormulario(true); // Garante que a tela de form se abra
+    setMostrarFormulario(true); 
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -734,7 +733,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   return (
     <div style={{ position: 'relative', background: 'var(--bg-card)', padding: '20px', borderRadius: '8px', border: '1px solid var(--borda)', color: 'var(--text-principal)', transition: 'all 0.3s', minHeight: '80vh' }}>
       
-      {/* SEÇÃO CONDICIONAL: TELA DE FORMULÁRIO */}
       {mostrarFormulario ? (
         <div style={{ animation: 'fadeIn 0.3s ease-in-out' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '20px' }}>
@@ -820,9 +818,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
           </form>
         </div>
       ) : (
-        /* SEÇÃO CONDICIONAL: TELA PRINCIPAL (WHATSAPP E PLANNER) */
         <div style={{ animation: 'fadeIn 0.3s ease-in-out' }}>
-          {/* GERADOR DE WHATSAPP */}
           <div style={{ backgroundColor: 'var(--bg-card-item)', padding: '15px', borderRadius: '8px', marginBottom: '30px', border: '1px solid #2ecc71' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
               <h4 style={{ margin: 0, color: '#27ae60', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -879,7 +875,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
             )}
           </div>
 
-          {/* PLANNER */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-card-destaque)', padding: '15px', borderRadius: '8px', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
             <h3 style={{ margin: 0, color: 'var(--text-principal)' }}>🗓️ Planner</h3>
             
@@ -948,7 +943,16 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
                         ) : (
                           <span 
                               onContextMenu={(e) => reverterConclusao(e, agenda)}
-                              style={{ color: '#27ae60', fontWeight: 'bold', cursor: 'pointer', userSelect: 'none' }}
+                              style={{ 
+                                color: '#27ae60', 
+                                fontWeight: 'bold', 
+                                cursor: 'pointer', 
+                                userSelect: 'none', 
+                                WebkitUserSelect: 'none', 
+                                WebkitTouchCallout: 'none', 
+                                MozUserSelect: 'none',
+                                msUserSelect: 'none'
+                              }}
                               title="Toque e segure (ou clique direito) para Reverter"
                           >
                               ✓ Finalizado
@@ -962,7 +966,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
             </div>
           )}
 
-          {/* BOTÃO FLUTUANTE (FAB) PARA NOVO AGENDAMENTO */}
           <button 
             onClick={() => setMostrarFormulario(true)}
             style={{
@@ -994,7 +997,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
         </div>
       )}
 
-      {/* MODAL DE ESCOLHA DO LEMBRETE (FICA FORA DO IF PARA APARECER SEMPRE) */}
       {agendaLembreteAlvo && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '20px', boxSizing: 'border-box' }}>
           <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--borda)', color: 'var(--text-principal)', padding: '20px', borderRadius: '8px', maxWidth: '500px', width: '100%', boxShadow: '0 4px 15px rgba(0,0,0,0.3)' }}>
