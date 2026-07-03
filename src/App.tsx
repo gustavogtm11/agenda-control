@@ -5,6 +5,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { auth, db } from './config/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
+import { Analytics } from '@vercel/analytics/react';
 
 import { Login } from './pages/Login';
 import { Painel } from './pages/Painel';
@@ -128,6 +129,7 @@ export default function App() {
         <Route path="/painel" element={usuario ? <Painel perfil={perfil} /> : <Navigate to="/" />} />
         <Route path="/agendar/:companyId" element={<AgendamentoPublico />} />
       </Routes>
+      <Analytics />
     </BrowserRouter>
   );
 }
