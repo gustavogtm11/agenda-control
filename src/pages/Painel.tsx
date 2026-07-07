@@ -1,9 +1,10 @@
 // src/pages/Painel.tsx
 
-import { useState, useEffect } from 'react';
+import  { useState, useEffect } from 'react';
 import { auth, db } from '../config/firebase'; 
 import { signOut } from 'firebase/auth';
 import { collection, query, where, onSnapshot, doc } from 'firebase/firestore'; 
+import { useToast } from '../App';
 
 import { ModuloAgenda } from '../components/ModuloAgenda';
 import { ModuloCaixa } from '../components/ModuloCaixa';
@@ -25,6 +26,8 @@ export function Painel({ perfil }: PainelProps) {
     const width = window.innerWidth;
     return width >= 1024;
   });
+
+  const { showToast } = useToast();
 
   // ESTADOS DO MOTOR DE NOTIFICAÇÕES (Background) e BADGES
   const [configuracoesGlobais, setConfiguracoesGlobais] = useState<any>(null);
@@ -148,7 +151,6 @@ export function Painel({ perfil }: PainelProps) {
     return () => clearInterval(intervalo);
   }, [configuracoesGlobais, agendamentosHoje, contasVencidas]);
 
-
   useEffect(() => {
     const rootElement = document.getElementById('root');
     if (rootElement) {
@@ -192,8 +194,13 @@ export function Painel({ perfil }: PainelProps) {
     if (perfil?.role === 'super_admin') setAbaAtiva('admin');
   }, [perfil]);
 
-  function fazerLogout() { 
-    signOut(auth); 
+  async function fazerLogout() {
+    try {
+      await signOut(auth);
+      showToast('Sessão encerrada com sucesso', 'success');
+    } catch (error: any) {
+      showToast('Erro ao encerrar sessão: ' + error.message, 'error');
+    }
   }
 
   const estiloBotaoMenu = (aba: string) => ({
@@ -203,7 +210,7 @@ export function Painel({ perfil }: PainelProps) {
     backgroundColor: abaAtiva === aba ? '#34495e' : 'transparent',
     color: 'white', 
     border: 'none', 
-    borderRadius: '6px',
+    borderRadius: '8px',
     textAlign: menuExpandido ? 'left' as const : 'center' as const,
     cursor: 'pointer', 
     fontSize: '16px', 
@@ -213,8 +220,8 @@ export function Painel({ perfil }: PainelProps) {
     justifyContent: menuExpandido ? 'flex-start' : 'center', 
     gap: '10px',
     boxSizing: 'border-box' as const,
-    transition: 'background-color 0.2s',
-    position: 'relative' as const // Necessário para a bolinha de notificação
+    transition: 'all 0.2s ease',
+    position: 'relative' as const
   });
 
   const mudarAba = (aba: any) => {
@@ -223,25 +230,26 @@ export function Painel({ perfil }: PainelProps) {
   };
 
   return (
-    <div style={{ display: 'flex', height: '100vh', width: '100%', fontFamily: 'sans-serif', margin: 0, backgroundColor: '#f5f6fa', overflow: 'hidden', boxSizing: 'border-box' }}>
+    <div style={{ display: 'flex', height: '100vh', width: '100%', fontFamily: "'Segoe UI', Roboto, Helvetica, Arial, sans-serif", margin: 0, backgroundColor: '#f5f6fa', overflow: 'hidden', boxSizing: 'border-box' }}>
       
+      {/* OVERLAY MOBILE: Fundo escurecido ao abrir o menu em telas pequenas */}
       {isMobile && menuExpandido && (
         <div 
           onClick={() => setMenuExpandido(false)} 
-          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 40 }} 
+          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 40, animation: 'fadeIn 0.3s ease' }} 
         />
       )}
 
       {/* MENU LATERAL */}
       <aside style={{ 
-        width: menuExpandido ? '260px' : (isMobile ? '0px' : '70px'),
+        width: menuExpandido ? '260px' : (isMobile ? '0px' : '75px'),
         backgroundColor: '#2c3e50', 
         color: 'white', 
         padding: menuExpandido || !isMobile ? '20px 12px' : '0px', 
         display: 'flex', 
         flexDirection: 'column', 
         justifyContent: 'space-between',
-        transition: 'all 0.3s ease-in-out',
+        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
         position: isMobile ? 'fixed' : 'relative',
         top: isMobile ? 0 : undefined,
         left: isMobile ? 0 : undefined,
@@ -249,18 +257,21 @@ export function Painel({ perfil }: PainelProps) {
         zIndex: 50, 
         overflowY: 'auto',
         overflowX: 'hidden',
-        boxSizing: 'border-box'
+        boxSizing: 'border-box',
+        boxShadow: isMobile ? '4px 0 15px rgba(0,0,0,0.3)' : 'none'
       }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: menuExpandido ? 'space-between' : 'center', marginBottom: '30px', padding: '0 5px' }}>
             {menuExpandido && (
-              <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold', color: perfil?.role === 'super_admin' ? '#9b59b6' : '#fff', whiteSpace: 'nowrap' }}>
+              <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold', color: perfil?.role === 'super_admin' ? '#9b59b6' : '#fff', whiteSpace: 'nowrap', animation: 'fadeIn 0.3s ease' }}>
                 {perfil?.role === 'super_admin' ? 'Master Admin' : 'Painel Gestor'}
               </h2>
             )}
             <button 
               onClick={() => setMenuExpandido(!menuExpandido)} 
-              style={{ background: 'transparent', border: 'none', color: 'white', fontSize: '22px', cursor: 'pointer', padding: '5px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              style={{ background: 'transparent', border: 'none', color: 'white', fontSize: '22px', cursor: 'pointer', padding: '5px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'transform 0.2s' }}
+              onMouseOver={(e) => e.currentTarget.style.transform = 'scale(1.1)'}
+              onMouseOut={(e) => e.currentTarget.style.transform = 'scale(1)'}
             >
               {isMobile && menuExpandido ? '✕' : '☰'}
             </button>
@@ -268,29 +279,60 @@ export function Painel({ perfil }: PainelProps) {
 
           {perfil?.role !== 'super_admin' && (
             <nav style={{ display: 'flex', flexDirection: 'column' }}>
-              <button style={estiloBotaoMenu('agenda')} onClick={() => mudarAba('agenda')}>
-                <span>📅</span> {menuExpandido && <span>Agenda</span>}
+              <button 
+                style={estiloBotaoMenu('agenda')} 
+                onClick={() => mudarAba('agenda')}
+                onMouseOver={(e) => abaAtiva !== 'agenda' && (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.05)')}
+                onMouseOut={(e) => abaAtiva !== 'agenda' && (e.currentTarget.style.backgroundColor = 'transparent')}
+              >
+                <span>📅</span> {menuExpandido && <span style={{ animation: 'fadeIn 0.2s ease' }}>Agenda</span>}
               </button>
+              
               {perfil?.role === 'chefe' && (
                 <>
-                  <button style={estiloBotaoMenu('caixa')} onClick={() => mudarAba('caixa')}>
-                    <span>💰</span> {menuExpandido && <span>Caixa</span>}
+                  <button 
+                    style={estiloBotaoMenu('caixa')} 
+                    onClick={() => mudarAba('caixa')}
+                    onMouseOver={(e) => abaAtiva !== 'caixa' && (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.05)')}
+                    onMouseOut={(e) => abaAtiva !== 'caixa' && (e.currentTarget.style.backgroundColor = 'transparent')}
+                  >
+                    <span>💰</span> {menuExpandido && <span style={{ animation: 'fadeIn 0.2s ease' }}>Caixa</span>}
                     {/* BOLINHA VERMELHA (Só mostra se tem dívida E a aba não é o caixa) */}
                     {contasVencidas.length > 0 && abaAtiva !== 'caixa' && (
                       <span style={{ position: 'absolute', top: '8px', right: '8px', width: '10px', height: '10px', backgroundColor: '#e74c3c', borderRadius: '50%', boxShadow: '0 0 5px rgba(231, 76, 60, 0.8)' }} title="Contas Pendentes!" />
                     )}
                   </button>
-                  <button style={estiloBotaoMenu('estoque')} onClick={() => mudarAba('estoque')}>
-                    <span>📦</span> {menuExpandido && <span>Estoque</span>}
+                  <button 
+                    style={estiloBotaoMenu('estoque')} 
+                    onClick={() => mudarAba('estoque')}
+                    onMouseOver={(e) => abaAtiva !== 'estoque' && (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.05)')}
+                    onMouseOut={(e) => abaAtiva !== 'estoque' && (e.currentTarget.style.backgroundColor = 'transparent')}
+                  >
+                    <span>📦</span> {menuExpandido && <span style={{ animation: 'fadeIn 0.2s ease' }}>Estoque</span>}
                   </button>
-                  <button style={estiloBotaoMenu('servicos')} onClick={() => mudarAba('servicos')}>
-                    <span>🛠️</span> {menuExpandido && <span>Serviços</span>}
+                  <button 
+                    style={estiloBotaoMenu('servicos')} 
+                    onClick={() => mudarAba('servicos')}
+                    onMouseOver={(e) => abaAtiva !== 'servicos' && (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.05)')}
+                    onMouseOut={(e) => abaAtiva !== 'servicos' && (e.currentTarget.style.backgroundColor = 'transparent')}
+                  >
+                    <span>🛠️</span> {menuExpandido && <span style={{ animation: 'fadeIn 0.2s ease' }}>Serviços</span>}
                   </button>
-                  <button style={estiloBotaoMenu('funcionarios')} onClick={() => mudarAba('funcionarios')}>
-                    <span>👥</span> {menuExpandido && <span>Equipe</span>}
+                  <button 
+                    style={estiloBotaoMenu('funcionarios')} 
+                    onClick={() => mudarAba('funcionarios')}
+                    onMouseOver={(e) => abaAtiva !== 'funcionarios' && (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.05)')}
+                    onMouseOut={(e) => abaAtiva !== 'funcionarios' && (e.currentTarget.style.backgroundColor = 'transparent')}
+                  >
+                    <span>👥</span> {menuExpandido && <span style={{ animation: 'fadeIn 0.2s ease' }}>Equipe</span>}
                   </button>
-                  <button style={estiloBotaoMenu('config')} onClick={() => mudarAba('config')}>
-                    <span>⚙️</span> {menuExpandido && <span>Configurações</span>}
+                  <button 
+                    style={estiloBotaoMenu('config')} 
+                    onClick={() => mudarAba('config')}
+                    onMouseOver={(e) => abaAtiva !== 'config' && (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.05)')}
+                    onMouseOut={(e) => abaAtiva !== 'config' && (e.currentTarget.style.backgroundColor = 'transparent')}
+                  >
+                    <span>⚙️</span> {menuExpandido && <span style={{ animation: 'fadeIn 0.2s ease' }}>Configurações</span>}
                   </button>
                 </>
               )}
@@ -298,22 +340,24 @@ export function Painel({ perfil }: PainelProps) {
           )}
 
           {perfil?.role === 'super_admin' && menuExpandido && (
-            <div style={{ padding: '12px', background: '#34495e', borderRadius: '6px', textAlign: 'center', fontSize: '14px', color: '#9b59b6', fontWeight: 'bold' }}>
+            <div style={{ padding: '12px', background: '#34495e', borderRadius: '6px', textAlign: 'center', fontSize: '14px', color: '#9b59b6', fontWeight: 'bold', animation: 'fadeIn 0.3s ease' }}>
               👑 Controle Global
             </div>
           )}
         </div>
 
         {(menuExpandido || !isMobile) && (
-          <div style={{ borderTop: '1px solid #34495e', paddingTop: '15px', marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '15px', marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {menuExpandido && (
-              <p style={{ margin: '0 0 5px 0', fontSize: '14px', color: '#ecf0f1', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <p style={{ margin: '0 0 5px 0', fontSize: '14px', color: '#ecf0f1', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', animation: 'fadeIn 0.3s ease' }}>
                 👤 {perfil?.nome}
               </p>
             )}
             <button 
               onClick={fazerLogout} 
-              style={{ width: '100%', padding: '12px', backgroundColor: '#e74c3c', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+              style={{ width: '100%', padding: '12px', backgroundColor: '#e74c3c', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', transition: 'background 0.2s' }}
+              onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#c0392b'}
+              onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#e74c3c'}
             >
               {menuExpandido ? 'Desconectar' : '🚪'}
             </button>
@@ -329,19 +373,29 @@ export function Painel({ perfil }: PainelProps) {
         overflowX: 'hidden', 
         height: '100vh',
         boxSizing: 'border-box',
-        backgroundColor: '#f5f6fa'
+        backgroundColor: '#f5f6fa',
+        position: 'relative'
       }}>
         
+        {/* Estilos Globais de Animação para este componente */}
+        <style>{`
+          @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+          @keyframes fadeInContent { 
+            from { opacity: 0; transform: translateY(10px); } 
+            to { opacity: 1; transform: translateY(0); } 
+          }
+        `}</style>
+
         {isMobile && !menuExpandido && (
           <button 
             onClick={() => setMenuExpandido(true)}
-            style={{ position: 'fixed', top: '15px', left: '15px', zIndex: 30, background: '#2c3e50', color: 'white', border: 'none', borderRadius: '6px', padding: '10px 15px', fontSize: '18px', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.25)' }}
+            style={{ position: 'fixed', top: '15px', left: '15px', zIndex: 30, background: '#ffffff', color: '#2c3e50', border: '1px solid #dfe6e9', borderRadius: '8px', padding: '10px 15px', fontSize: '18px', cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold' }}
           >
-            ☰ Menu
+            ☰ <span>Menu</span>
           </button>
         )}
 
-        <div style={{ marginTop: isMobile && !menuExpandido ? '50px' : '0', width: '100%' }}>
+        <div style={{ marginTop: isMobile && !menuExpandido ? '60px' : '0', width:  '100%', animation: 'fadeInContent 0.4s ease-out' }}>
           {abaAtiva === 'agenda' && perfil?.role !== 'super_admin' && <ModuloAgenda perfil={perfil} />}
           {abaAtiva === 'caixa' && perfil?.role === 'chefe' && <ModuloCaixa perfil={perfil} />}
           {abaAtiva === 'estoque' && perfil?.role === 'chefe' && <ModuloEstoque perfil={perfil} />}

@@ -116,7 +116,14 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
       if (docSnap.exists()) {
           const dados = docSnap.data();
           if (dados.horariosFuncionamento) setConfigHorarios(dados.horariosFuncionamento);
-          if (dados.horarioAlmoco) setAlmocoConfig(dados.horarioAlmoco);
+          
+          // Cobre variações estruturais no Firestore caso o formato de salvamento varie
+          if (dados.horarioAlmoco) {
+              setAlmocoConfig(dados.horarioAlmoco);
+          } else if (dados.configuracoes?.horarioAlmoco) {
+              setAlmocoConfig(dados.configuracoes.horarioAlmoco);
+          }
+          
           if (dados.diasBloqueados) setDiasBloqueadosConfig(dados.diasBloqueados);
           if (dados.mensagemLembrete) setMensagemLembreteConfig(dados.mensagemLembrete);
       }
@@ -202,7 +209,15 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
     executarSincronizacao();
     window.addEventListener('online', executarSincronizacao);
-    return () => window.removeEventListener('online', executarSincronizacao);
+    
+    const intervaloSincronismo = setInterval(() => {
+      executarSincronizacao();
+    }, 15000);
+
+    return () => {
+      window.removeEventListener('online', executarSincronizacao);
+      clearInterval(intervaloSincronismo);
+    };
   }, [agendamentos, perfil?.companyId, funcionarios]);
 
   const obterHorariosDisponiveis = () => {
@@ -232,7 +247,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     const [hFimConfig, mFimConfig] = configDoDia.fim.split(':').map(Number);
     const fimExpediente = hFimConfig * 60 + mFimConfig;
 
-    // LÓGICA DE HORÁRIOS RETROATIVOS
     const eHoje = dataForm === dataDeHoje();
     const agora = new Date();
     const minutosAtuais = agora.getHours() * 60 + agora.getMinutes();
@@ -244,14 +258,17 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
       if (inicioDesejado < inicioExpediente || fimDesejado > fimExpediente) return false;
 
-      // Se for hoje, bloqueia horários que já passaram
       if (eHoje && inicioDesejado <= minutosAtuais) return false;
 
-      if (almocoConfig?.ativo) {
-          const [hA, mA] = almocoConfig.inicio.split(':').map(Number);
-          const iniAlmoco = hA * 60 + mA;
-          const [hAF, mAF] = almocoConfig.fim.split(':').map(Number);
-          const fimAlmoco = hAF * 60 + mAF;
+      // ATUALIZAÇÃO CORRIGIDA: Regra ultra-robusta independente da presença estrita do booleano "ativo"
+      const temConfigDeAlmoco = almocoConfig && almocoConfig.inicio && almocoConfig.fim;
+      const almocoNaoFoiDesativado = almocoConfig?.ativo !== false && String(almocoConfig?.ativo) !== 'false';
+      
+      if (temConfigDeAlmoco && almocoNaoFoiDesativado) {
+          const [hA, mA] = String(almocoConfig.inicio).split(':').map(Number);
+          const iniAlmoco = (hA * 60 + mA) + 1; // +1 min invisível
+          const [hAF, mAF] = String(almocoConfig.fim).split(':').map(Number);
+          const fimAlmoco = (hAF * 60 + mAF) - 1; // -1 min invisível
           
           if (inicioDesejado < fimAlmoco && fimDesejado > iniAlmoco) return false;
       }
@@ -272,8 +289,31 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     });
   };
 
-  const todosHorariosDoDia = gerarHorarios();
   const horariosValidos = obterHorariosDisponiveis();
+
+  const obterHorariosEncaixe = () => {
+    const todos = gerarHorarios();
+    if (dataForm !== dataDeHoje()) return todos;
+
+    const agora = new Date();
+    const minutosAtuais = agora.getHours() * 60 + agora.getMinutes();
+
+    return todos.filter(horario => {
+      const [h, m] = horario.split(':').map(Number);
+      return (h * 60 + m) > minutosAtuais;
+    });
+  };
+
+  const horariosEncaixe = obterHorariosEncaixe();
+
+  useEffect(() => {
+    if (idEmEdicao) return; 
+
+    const opcoesDisponiveis = isEncaixeAtivo ? horariosEncaixe : horariosValidos;
+    if (opcoesDisponiveis.length > 0 && !opcoesDisponiveis.includes(horaForm)) {
+      setHoraForm(opcoesDisponiveis[0]);
+    }
+  }, [dataForm, servicoIdsSelecionados, emailFuncionarioSelecionado, isEncaixeAtivo, agendamentos, idEmEdicao]);
 
   const montarTextoLembretePersonalizado = (agenda: Agendamento) => {
     const templatePadrao = `*Lembrete de Agendamento*\n\nOlá, *{primeiroNome}*! Tudo bem? \nPassando aqui para confirmar o seu horário conosco.\n\n*Data:* {data}\n*Horário:* {hora}\n*Serviço:* {servico}\n*Profissional:* {profissional}\n\nSe precisar remarcar, por favor, nos avise com antecedência.\nAté logo!`;
@@ -283,8 +323,8 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     const [ano, mes, dia] = agenda.dataHora.split('T')[0].split('-');
     const dataFormatada = `${dia}/${mes}/${ano}`;
     const horaFormatada = agenda.dataHora.split('T')[1];
-    const profissionalObj = agenda.funcionarioEmail ? funcionarios.find(f => f.email === agenda.funcionarioEmail) : null;
-    const nomeProfissional = profissionalObj ? profissionalObj.nome : 'Não especificado';
+    const profesionalObj = agenda.funcionarioEmail ? funcionarios.find(f => f.email === agenda.funcionarioEmail) : null;
+    const nomeProfissional = profesionalObj ? profesionalObj.nome : 'Não especificado';
 
     return textoBase
       .replace(/{primeiroNome}/g, primeiroNome)
@@ -327,7 +367,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     const [hFim, mFim] = config.fim.split(':').map(Number);
     const fimExpediente = hFim * 60 + mFim;
 
-    // LÓGICA DE HORÁRIOS RETROATIVOS
     const eHoje = dataStr === dataDeHoje();
     const agora = new Date();
     const minutosAtuais = agora.getHours() * 60 + agora.getMinutes();
@@ -338,17 +377,20 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
         
         if (minutosAtual < inicioExpediente || minutosAtual >= fimExpediente) return false;
 
-        // Se for hoje, bloqueia horários que já passaram
         if (eHoje && minutosAtual <= minutosAtuais) return false;
 
-        if (almocoConfig?.ativo) {
-          const [hA, mA] = almocoConfig.inicio.split(':').map(Number);
-          const iniAlmoco = hA * 60 + mA;
-          const [hAF, mAF] = almocoConfig.fim.split(':').map(Number);
-          const fimAlmoco = hAF * 60 + mAF;
+        // ATUALIZAÇÃO CORRIGIDA PARA O GERADOR WPP
+        const temConfigDeAlmoco = almocoConfig && almocoConfig.inicio && almocoConfig.fim;
+        const almocoNaoFoiDesativado = almocoConfig?.ativo !== false && String(almocoConfig?.ativo) !== 'false';
+
+        if (temConfigDeAlmoco && almocoNaoFoiDesativado) {
+          const [hA, mA] = String(almocoConfig.inicio).split(':').map(Number);
+          const iniAlmoco = (hA * 60 + mA) + 1; 
+          const [hAF, mAF] = String(almocoConfig.fim).split(':').map(Number);
+          const fimAlmoco = (hAF * 60 + mAF) - 1; 
           
-          if (minutosAtual >= iniAlmoco && minutosAtual < fimAlmoco) return false;
-      }
+          if (minutosAtual < fimAlmoco && (minutosAtual + 30) > iniAlmoco) return false;
+        }
 
         const ocupado = agendamentosDoDia.some(ag => {
           const [hAg, mAg] = ag.dataHora.split('T')[1].split(':').map(Number);
@@ -408,6 +450,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
       const textoEncoded = encodeURIComponent(textoWpp);
       window.open(`https://wa.me/?text=${textoEncoded}`, '_blank');
   };
+
   async function lidarComAgendamento(e: React.FormEvent) {
     e.preventDefault();
     if (!cliente || !dataForm || !horaForm || servicoIdsSelecionados.length === 0 || !perfil?.companyId) {
@@ -417,7 +460,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     const isEncaixe = !horariosValidos.includes(horaForm);
     if (isEncaixe) {
         const confirmar = window.confirm("⚠️ Atenção: Este horário está fora do seu expediente, em horário de almoço ou já possui outro agendamento neste mesmo período.\n\nDeseja realizar este agendamento forçado como um ENCAIXE?");
-        if (!confirmar) return;
+        if (!confirmar) return; 
     }
 
     const listaServicosEscolhidos = servicosDisponiveis.filter(s => servicoIdsSelecionados.includes(s.id));
@@ -766,7 +809,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
                 <input type="date" value={dataForm} onChange={e => setDataForm(e.target.value)} style={{ ...inputStyle, flex: '1 1 130px' }} />
                 
                 <select value={horaForm} onChange={e => setHoraForm(e.target.value)} style={{ ...inputStyle, flex: '1 1 120px' }}>
-                  {(isEncaixeAtivo ? todosHorariosDoDia : horariosValidos).map(h => {
+                  {(isEncaixeAtivo ? horariosEncaixe : horariosValidos).map(h => {
                       const disponivel = horariosValidos.includes(h);
                       return (
                         <option key={h} value={h}>
@@ -925,55 +968,58 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
           </div>
 
           {agendamentosDoDia.length === 0 ? (
-            <p style={{ color: 'var(--text-secundario)', textAlign: 'center', padding: '20px' }}>Nenhum agendamento para este dia.</p>
+            <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secundario)' }}>
+              <span style={{ fontSize: '40px', display: 'block', marginBottom: '10px' }}>📭</span>
+              Nenhum agendamento para este dia.
+            </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingBottom: '80px' }}>
               {agendamentosDoDia.map(agenda => {
-                const horaAgendamento = agenda.dataHora.split('T')[1];
                 return (
-                  <div key={agenda.id} style={{ display: 'flex', backgroundColor: 'var(--bg-card-item)', border: '1px solid var(--borda)', borderRadius: '6px', overflow: 'hidden', color: 'var(--text-principal)' }}>
-                    
-                    <div style={{ backgroundColor: agenda.status === 'pendente' ? '#34495e' : '#27ae60', color: 'white', padding: '20px 5px', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '60px', fontWeight: 'bold', fontSize: '18px' }}>
-                      {horaAgendamento}
+                  <div key={agenda.id} style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', padding: '15px', border: '1px solid var(--borda)', borderRadius: '8px', borderLeft: agenda.status === 'concluido' ? '5px solid #2ecc71' : '5px solid #f39c12', backgroundColor: 'var(--bg-card-item)' }}>
+                    <div>
+                      <h4 style={{ margin: '0 0 5px 0', color: 'var(--text-principal)', fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {agenda.dataHora.split('T')[1]} - {agenda.clienteNome}
+                        {agenda.googleSyncPending && <span style={{ fontSize: '12px', color: '#e67e22', fontStyle: 'italic', fontWeight: 'normal' }}>(Aguardando...)</span>}
+                      </h4>
+                      <span style={{ fontSize: '14px', color: 'var(--text-secundario)', display: 'block', marginBottom: '3px' }}>
+                        {agenda.servicoNome} | <strong>R$ {agenda.preco.toFixed(2)}</strong>
+                      </span>
+                      <span style={{ fontSize: '13px', color: 'var(--text-secundario)' }}>
+                        Prof: {agenda.funcionarioEmail ? (funcionarios.find(f => f.email === agenda.funcionarioEmail)?.nome || 'Não definido') : 'Não definido'}
+                      </span>
                     </div>
-                    
-                    <div style={{ padding: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flex: 1, flexWrap: 'wrap', gap: '10px' }}>
-                      <div>
-                        <h4 style={{ margin: '0 0 5px 0', fontSize: '16px' }}>
-                          {agenda.clienteNome} {agenda.googleSyncPending && <span style={{ fontSize: '12px', color: '#e67e22', fontStyle: 'italic' }}>(Aguardando conexão...)</span>}
-                        </h4>
-                        <p style={{ margin: 0, color: 'var(--text-secundario)', fontSize: '14px' }}>
-                          {agenda.servicoNome} {agenda.funcionarioEmail && `(Prof: ${funcionarios.find(f => f.email === agenda.funcionarioEmail)?.nome})`}
-                        </p>
-                      </div>
-                      
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        {agenda.status === 'pendente' ? (
-                          <>
-                            <button onClick={() => setAgendaLembreteAlvo(agenda)} style={{ padding: '8px 12px', backgroundColor: '#25D366', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '16px' }} title="Enviar Lembrete">💬</button>
-                            <button onClick={() => prepararEdicao(agenda)} style={{ padding: '8px 12px', backgroundColor: '#f39d12c9', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }} title="Editar">✏️</button>
-                            <button onClick={() => excluirAgendamento(agenda)} style={{ padding: '8px 12px', backgroundColor: '#e74d3ccb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }} title="Excluir">🗑️</button>
-                            <button onClick={() => marcarComoConcluido(agenda)} style={{ padding: '8px 12px', backgroundColor: '#27ae60c9', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>✓ Concluir</button>
-                          </>
-                        ) : (
-                          <span 
-                              onContextMenu={(e) => reverterConclusao(e, agenda)}
-                              style={{ 
-                                color: '#27ae60', 
-                                fontWeight: 'bold', 
-                                cursor: 'pointer', 
-                                userSelect: 'none', 
-                                WebkitUserSelect: 'none', 
-                                WebkitTouchCallout: 'none', 
-                                MozUserSelect: 'none',
-                                msUserSelect: 'none'
-                              }}
-                              title="Toque e segure (ou clique direito) para Reverter"
-                          >
-                              ✓ Finalizado
-                          </span>
-                        )}
-                      </div>
+
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+                      {agenda.status === 'pendente' ? (
+                        <>
+                          <button onClick={() => setAgendaLembreteAlvo(agenda)} style={{ padding: '8px 12px', background: '#3498db', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>💬 Avisar</button>
+                          <button onClick={() => marcarComoConcluido(agenda)} style={{ padding: '8px 12px', background: '#2ecc71', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>✅ Concluir</button>
+                          <button onClick={() => prepararEdicao(agenda)} style={{ padding: '8px 12px', background: '#f39c12', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>✏️</button>
+                          <button onClick={() => excluirAgendamento(agenda)} style={{ padding: '8px 12px', background: '#e74c3c', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>🗑️</button>
+                        </>
+                      ) : (
+                        <span
+                          onContextMenu={(e) => reverterConclusao(e, agenda)}
+                          style={{
+                            color: '#27ae60',
+                            fontWeight: 'bold',
+                            cursor: 'pointer',
+                            userSelect: 'none',
+                            WebkitUserSelect: 'none',
+                            WebkitTouchCallout: 'none',
+                            MozUserSelect: 'none',
+                            msUserSelect: 'none',
+                            padding: '8px 12px',
+                            backgroundColor: 'rgba(46, 204, 113, 0.1)',
+                            borderRadius: '6px',
+                            display: 'inline-block'
+                          }}
+                          title="Toque e segure (ou clique direito) para Reverter"
+                        >
+                          ✓ Finalizado
+                        </span>
+                      )}
                     </div>
                   </div>
                 );

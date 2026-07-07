@@ -202,7 +202,7 @@ export function ModuloServicos({ perfil }: ModuloServicosProps) {
   return (
     <div style={{ background: 'var(--bg-card)', padding: '20px', borderRadius: '8px', border: '1px solid var(--borda)', color: 'var(--text-principal)', marginTop: '20px' }}>
       <h3 style={{ color: idEmEdicao ? '#e67e22' : 'inherit', marginTop: 0 }}>
-        {idEmEdicao ? '✏️ Editando Serviço' : '✂️ Cadastro de Serviços'}
+        {idEmEdicao ? '✏️ Editando Serviço' : '🛠️ Cadastro de Serviços'}
       </h3>
 
       <form onSubmit={lidarComCadastro} style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginBottom: '30px', paddingBottom: '25px', borderBottom: '2px dashed var(--borda)' }}>
