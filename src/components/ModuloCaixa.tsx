@@ -323,29 +323,29 @@ export function ModuloCaixa({ perfil }: ModuloCaixaProps) {
         )}
 
         <form onSubmit={registrarConta} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', padding: '15px', background: 'var(--bg-card-item)', borderRadius: '6px', border: '1px solid var(--borda)' }}>
-            <input type="text" placeholder="Nome da Conta (Ex: Luz, Internet, Fornecedor)" value={descConta} onChange={e => setDescConta(e.target.value)} style={{ ...inputStyle, flex: '2 1 200px' }} />
+            <input type="text" placeholder="Nome da Conta (Ex: Luz, Internet, Fornecedor)" value={descConta} onChange={e => setDescConta(e.target.value)} style={{ ...inputStyle, flex: '1 1 100px' }} />
             
             <div style={{ flex: '1 1 100px', display: 'flex', flexDirection: 'column' }}>
                 <span style={{ fontSize: '11px', color: 'var(--text-secundario)', marginBottom: '2px' }}>Valor da Parcela (R$)</span>
-                <input type="number" step="0.01" placeholder="R$" value={valorConta || ''} onChange={e => setValorConta(Number(e.target.value))} style={{ ...inputStyle, width: '100%' }} />
+                <input type="number" step="0.01" placeholder="R$" value={valorConta || ''} onChange={e => setValorConta(Number(e.target.value))} style={{ ...inputStyle, width: '90%' }} />
             </div>
 
             {/* SE FOR CONTA FIXA: MOSTRA APENAS O DIA */}
             {tipoFiltrar === 'fixa' ? (
                 <div style={{ flex: '1 1 100px', display: 'flex', flexDirection: 'column' }}>
                     <span style={{ fontSize: '11px', color: 'var(--text-secundario)', marginBottom: '2px' }}>Dia do Vencimento</span>
-                    <input type="number" min="1" max="31" placeholder="Ex: 5" value={diaVencimentoConta} onChange={e => setDiaVencimentoConta(Number(e.target.value))} style={{ ...inputStyle, width: '100%' }} />
+                    <input type="number" min="1" max="31" placeholder="Ex: 5" value={diaVencimentoConta} onChange={e => setDiaVencimentoConta(Number(e.target.value))} style={{ ...inputStyle, width: '90%' }} />
                 </div>
             ) : (
             /* SE FOR CONTA AVULSA: MOSTRA DATA COMPLETA E PARCELAS */
                 <>
-                    <div style={{ flex: '1 1 130px', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ flex: '1 1 100px', display: 'flex', flexDirection: 'column' }}>
                         <span style={{ fontSize: '11px', color: 'var(--text-secundario)', marginBottom: '2px' }}>1º Vencimento</span>
-                        <input type="date" value={vencimentoConta} onChange={e => setVencimentoConta(e.target.value)} style={{ ...inputStyle, width: '100%' }} />
+                        <input type="date" value={vencimentoConta} onChange={e => setVencimentoConta(e.target.value)} style={{ ...inputStyle, maxWidth: '100%' }} />
                     </div>
                     <div style={{ flex: '1 1 100px', display: 'flex', flexDirection: 'column' }}>
                         <span style={{ fontSize: '11px', color: 'var(--text-secundario)', marginBottom: '2px' }}>Qtd. de Parcelas</span>
-                        <input type="number" min="1" value={totalParcelasConta} onChange={e => setTotalParcelasConta(Number(e.target.value))} style={{ ...inputStyle, width: '100%' }} title="Digite 1 se for à vista" />
+                        <input type="number" min="1" value={totalParcelasConta} onChange={e => setTotalParcelasConta(Number(e.target.value))} style={{ ...inputStyle, maxWidth: '100%' }} title="Digite 1 se for à vista" />
                     </div>
                 </>
             )}

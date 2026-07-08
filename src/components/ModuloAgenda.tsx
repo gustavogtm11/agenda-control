@@ -5,6 +5,7 @@ import { db, auth } from '../config/firebase';
 import { signOut } from 'firebase/auth'; 
 import { collection, addDoc, updateDoc, deleteDoc, query, where, onSnapshot, orderBy, doc, getDocs, getDoc } from 'firebase/firestore';
 import '../App.css';
+import { Toaster, toast } from "sonner";
 
 interface ModuloAgendaProps {
   perfil: { companyId: string; role: string } | null;
@@ -84,7 +85,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
   const lidarComTokenExpirado = () => {
     sessionStorage.removeItem('googleToken');
-    alert("Sua sessão do Google Calendar expirou por segurança. Você será redirecionado para fazer login novamente.");
+    toast.error("Sua sessão do Google Calendar expirou por segurança. Você será redirecionado para fazer login novamente.");
     signOut(auth); 
   };
 
@@ -115,13 +116,19 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     const unsubConfig = onSnapshot(doc(db, 'empresas', perfil.companyId), (docSnap) => {
       if (docSnap.exists()) {
           const dados = docSnap.data();
-          if (dados.horariosFuncionamento) setConfigHorarios(dados.horariosFuncionamento);
           
-          // Cobre variações estruturais no Firestore caso o formato de salvamento varie
+          if (dados.horariosFuncionamento) {
+              setConfigHorarios(dados.horariosFuncionamento);
+          } else if (dados.configuracoesGlobais?.horariosFuncionamento) {
+              setConfigHorarios(dados.configuracoesGlobais.horariosFuncionamento);
+          }
+          
           if (dados.horarioAlmoco) {
               setAlmocoConfig(dados.horarioAlmoco);
           } else if (dados.configuracoes?.horarioAlmoco) {
               setAlmocoConfig(dados.configuracoes.horarioAlmoco);
+          } else if (dados.configuracoesGlobais?.horarioAlmoco) {
+              setAlmocoConfig(dados.configuracoesGlobais.horarioAlmoco);
           }
           
           if (dados.diasBloqueados) setDiasBloqueadosConfig(dados.diasBloqueados);
@@ -136,6 +143,54 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
       unsubConfig();
     };
   }, [perfil?.companyId]);
+
+
+
+// =========================================================
+  // VERIFICADOR AUTOMÁTICO DE ATENDIMENTOS CONCLUÍDOS
+  // =========================================================
+  useEffect(() => {
+    // Se não houver agendamentos, não precisa rodar
+    if (agendamentos.length === 0) return;
+
+    const verificarEAtualizarStatus = () => {
+      const agora = new Date();
+
+      agendamentos.forEach(async (ag) => {
+        // Só verifica os que ainda estão pendentes
+        if (ag.status === 'pendente') {
+          // Converte a dataHora (ex: "2023-10-25T14:30") para um objeto Date real
+          const inicio = new Date(`${ag.dataHora}:00`);
+          
+          // Calcula o fim somando a duração em milissegundos (minutos * 60000)
+          const fim = new Date(inicio.getTime() + (ag.duracaoMinutos * 60000));
+
+          // Se o momento atual ultrapassou o horário de término previsto
+          if (agora >= fim) {
+            try {
+              // Atualiza silenciosamente no banco de dados
+              await updateDoc(doc(db, 'agendamentos', ag.id), { 
+                status: 'concluido' 
+              });
+              console.log(`Agendamento ${ag.id} concluído automaticamente.`);
+            } catch (erro) {
+              console.error("Erro ao concluir agendamento automaticamente:", erro);
+            }
+          }
+        }
+      });
+    };
+
+    // Roda a verificação imediatamente ao carregar...
+    verificarEAtualizarStatus();
+
+    // ... e depois continua checando a cada 1 minuto (60.000 ms)
+    const intervalo = setInterval(verificarEAtualizarStatus, 60000);
+
+    return () => clearInterval(intervalo);
+  }, [agendamentos]);
+
+
 
   useEffect(() => {
     const tokenGoogle = sessionStorage.getItem('googleToken');
@@ -337,7 +392,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   const executarCopiarLembrete = (agenda: Agendamento) => {
     const texto = montarTextoLembretePersonalizado(agenda);
     navigator.clipboard.writeText(texto);
-    alert("Mensagem de lembrete copiada com sucesso!");
+    toast.success("Mensagem de lembrete copiada com sucesso!");
     setAgendaLembreteAlvo(null);
   };
 
@@ -408,7 +463,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     const fim = new Date(dataFimWpp + 'T00:00:00');
     
     if (inicio > fim) {
-        alert("A data de início não pode ser maior que a data final.");
+        toast.error("A data de início não pode ser maior que a data final.");
         return;
     }
 
@@ -441,11 +496,13 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   };
 
   const copiarTexto = () => {
+      setModalWppAberto(!modalWppAberto);
       navigator.clipboard.writeText(textoWpp);
-      alert("Mensagem copiada para a área de transferência!");
+      toast.success("Mensagem copiada para a área de transferência!");
   };
 
   const abrirWhatsApp = () => {
+      setModalWppAberto(!modalWppAberto);
       if (!textoWpp) return;
       const textoEncoded = encodeURIComponent(textoWpp);
       window.open(`https://wa.me/?text=${textoEncoded}`, '_blank');
@@ -454,7 +511,8 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   async function lidarComAgendamento(e: React.FormEvent) {
     e.preventDefault();
     if (!cliente || !dataForm || !horaForm || servicoIdsSelecionados.length === 0 || !perfil?.companyId) {
-      alert("Preencha todos os campos obrigatórios (incluindo pelo menos um serviço)!"); return;
+      toast.error("Preencha todos os campos obrigatórios (incluindo pelo menos um serviço)!");
+      return;
     }
 
     const isEncaixe = !horariosValidos.includes(horaForm);
@@ -520,9 +578,9 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
             preco: totalPreco, duracaoMinutos: totalDuracao,
             googleSyncPending: googleSyncPending
         });
-        alert("Agendamento atualizado com sucesso!");
+        toast.success("Agendamento atualizado com sucesso!");
       } catch (err) {
-        alert("Erro ao salvar no banco local.");
+        toast.error("Erro ao salvar no banco local.");
       }
       
     } else {
@@ -564,9 +622,9 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
             googleEventId: googleEventIdSalvar,
             googleSyncPending: googleSyncPending
         });
-        alert("Agendamento efetuado!");
+        toast.success("Agendamento efetuado!");
       } catch (err) {
-        alert("Erro ao salvar o agendamento localmente.");
+        toast.error("Erro ao salvar o agendamento localmente.");
       }
     }
 
@@ -596,9 +654,12 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   }
 
   async function excluirAgendamento(agenda: Agendamento) {
+    const toastId = toast.loading("Excluindo agendamento...");
+
     if (window.confirm("Tem certeza? O agendamento será excluído do sistema.")) {
       try {
         await deleteDoc(doc(db, 'agendamentos', agenda.id));
+        toast.dismiss(toastId);
         
         const tokenGoogle = sessionStorage.getItem('googleToken');
         if (tokenGoogle && agenda.googleEventId) {
@@ -684,10 +745,10 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
           transacaoCaixaId: transacaoId 
       });
 
-      alert("Serviço concluído com sucesso! Caixa e Estoque atualizados.");
+      toast.success("Serviço concluído com sucesso! Caixa e Estoque atualizados.");
 
     } catch (erro) {
-      alert("Houve um erro ao tentar concluir o serviço.");
+      toast.error("Houve um erro ao tentar concluir o serviço.");
     }
   }
 
@@ -741,10 +802,10 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
             }
           }
 
-          alert("Agendamento revertido com sucesso!");
+          toast.success("Agendamento revertido com sucesso!");
 
       } catch (error) {
-          alert("Erro ao tentar reverter o agendamento.");
+          toast.error("Erro ao tentar reverter o agendamento.");
       }
   }
 
@@ -789,7 +850,10 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   };
 
   return (
+    
     <div style={{ position: 'relative', background: 'var(--bg-card)', padding: '20px', borderRadius: '8px', border: '1px solid var(--borda)', color: 'var(--text-principal)', transition: 'all 0.3s', minHeight: '80vh' }}>
+    <Toaster richColors position="top-center" />
+    
       
       {mostrarFormulario ? (
         <div style={{ animation: 'fadeIn 0.3s ease-in-out' }}>
