@@ -6,6 +6,9 @@ import { auth, db } from './config/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 
+// IMPORTAÇÃO NOVA PARA O PWA
+import { useRegisterSW } from 'virtual:pwa-register/react';
+
 import { Login } from './pages/Login';
 import { Painel } from './pages/Painel';
 import { AgendamentoPublico } from './pages/AgendamentoPublico';
@@ -28,7 +31,6 @@ function ToastProvider({ children }: { children: React.ReactNode }) {
 
   const showToast = (msg: string, type: ToastType = 'info') => {
     setToast({ msg, type });
-    // Remove o aviso automaticamente após 4 segundos
     setTimeout(() => setToast(null), 4000);
   };
 
@@ -130,48 +132,38 @@ export default function App() {
     return localStorage.getItem('@App:bloqueada') === 'true';
   });
   
-  // O estado authLoading começa true para prevenir a tela "piscando"
   const [authLoading, setAuthLoading] = useState(true);
   const [carregandoPerfil, setCarregandoPerfil] = useState(false);
 
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [showPwaPrompt, setShowPwaPrompt] = useState(false);
 
-  useEffect(() => {
-    // 1. FORÇAR ATUALIZAÇÃO DO PWA (Bypass no Cache ao fazer novo deploy)
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').then(registration => {
-        registration.addEventListener('updatefound', () => {
-          const newWorker = registration.installing;
-          if (newWorker) {
-            newWorker.addEventListener('statechange', () => {
-              // Se tivermos um novo Service Worker instalado e já houver um controlador antigo
-              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                // Limpa todos os caches antigos do navegador
-                caches.keys().then(cacheNames => {
-                  Promise.all(cacheNames.map(cacheName => caches.delete(cacheName)))
-                    .then(() => {
-                      // Usaremos um alert nativo aqui apenas por ser nível de sistema antes de renderizar o DOM React
-                      if (window.confirm("Uma nova versão do sistema acabou de ser publicada! O aplicativo será recarregado para atualizar.")) {
-                        window.location.reload();
-                      } else {
-                        // Força reload mesmo se o usuário recusar para evitar conflitos de versão
-                        window.location.reload();
-                      }
-                    });
-                });
-              }
-            });
-          }
-        });
-      }).catch(err => console.error("Erro ao registrar SW: ", err));
-    }
+  // 1. GERENCIAMENTO OFICIAL DO PWA (Substitui o registo manual que causava o erro)
+  const {
+    needRefresh: [needRefresh, setNeedRefresh],
+    updateServiceWorker,
+  } = useRegisterSW({
+    onRegisterError(error) {
+      console.error('Erro ao registrar SW:', error);
+    },
+  });
 
-    // 2. CAPTURAR EVENTO DE INSTALAÇÃO DO APP NATIVO
+  // Mostra o alerta para recarregar se houver atualização (Substitui o evento updatefound)
+  useEffect(() => {
+    if (needRefresh) {
+      if (window.confirm("Uma nova versão do sistema acabou de ser publicada! O aplicativo será recarregado para atualizar.")) {
+        updateServiceWorker(true);
+      } else {
+        setNeedRefresh(false);
+      }
+    }
+  }, [needRefresh, updateServiceWorker, setNeedRefresh]);
+
+  useEffect(() => {
+    // 2. CAPTURAR EVENTO DE INSTALAÇÃO DO APP NATIVO (Mantém-se igual)
     const handleBeforeInstallPrompt = (e: any) => {
       e.preventDefault();
       setInstallPrompt(e);
-      // Mostra o prompt customizado se o usuário ainda não dispensou hoje
       if (!sessionStorage.getItem('@App:pwaPromptDismissed')) {
          setShowPwaPrompt(true);
       }
@@ -216,14 +208,14 @@ export default function App() {
           console.error("Erro ao buscar perfil:", error);
         } finally {
           setCarregandoPerfil(false);
-          setAuthLoading(false); // Fim da verificação, libera a UI
+          setAuthLoading(false);
         }
       } else {
         setUsuario(null);
         setPerfil(null);
         localStorage.removeItem('@App:perfil');
         localStorage.removeItem('@App:bloqueada');
-        setAuthLoading(false); // Fim da verificação, usuário deslogado
+        setAuthLoading(false);
       }
     });
 
@@ -235,9 +227,6 @@ export default function App() {
     sessionStorage.setItem('@App:pwaPromptDismissed', 'true');
   };
 
-  // -------------------------------------------------------------------------
-  // TELA 1: CARREGAMENTO INICIAL (Evita flash do Login)
-  // -------------------------------------------------------------------------
   if (authLoading || carregandoPerfil) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100vh', backgroundColor: '#f5f6fa' }}>
@@ -248,9 +237,6 @@ export default function App() {
     );
   }
 
-  // -------------------------------------------------------------------------
-  // TELA 2: BLOQUEIO POR INADIMPLÊNCIA
-  // -------------------------------------------------------------------------
   if (empresaBloqueada) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100vh', backgroundColor: '#e74c3c', color: 'white', fontFamily: 'sans-serif', padding: '20px', textAlign: 'center' }}>
@@ -272,9 +258,6 @@ export default function App() {
     );
   }
 
-  // -------------------------------------------------------------------------
-  // TELA 3: USUÁRIO AUTENTICADO MAS SEM PERFIL NO BANCO
-  // -------------------------------------------------------------------------
   if (usuario && !perfil) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100vh', fontFamily: 'sans-serif', backgroundColor: '#f5f6fa', textAlign: 'center', padding: '20px' }}>
@@ -292,9 +275,6 @@ export default function App() {
     );
   }
 
-  // -------------------------------------------------------------------------
-  // ROTEAMENTO PRINCIPAL
-  // -------------------------------------------------------------------------
   return (
     <ToastProvider>
       {showPwaPrompt && <PwaPrompt promptEvent={installPrompt} onDismiss={dismissPwaPrompt} />}

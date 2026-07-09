@@ -67,7 +67,7 @@ if (!self.define) {
     });
   };
 }
-define(['./workbox-7e5eb42b'], (function (workbox) { 'use strict';
+define(['./workbox-aeb6ecaf'], (function (workbox) { 'use strict';
 
   self.skipWaiting();
   workbox.clientsClaim();
@@ -81,11 +81,20 @@ define(['./workbox-7e5eb42b'], (function (workbox) { 'use strict';
     "revision": "3ca0b8505b4bec776b69afdba2768812"
   }, {
     "url": "index.html",
-    "revision": "0.962e9nim6bo"
+    "revision": "0.s27kaqq1e3o"
   }], {});
   workbox.cleanupOutdatedCaches();
   workbox.registerRoute(new workbox.NavigationRoute(workbox.createHandlerBoundToURL("index.html"), {
-    allowlist: [/^\/$/]
+    allowlist: [/^\/$/],
+    denylist: [/^\/_/, /firestore\.googleapis\.com/]
   }));
+  workbox.registerRoute(/^https:\/\/firestore\.googleapis\.com\/.*/i, new workbox.NetworkOnly({
+    "cacheName": "firebase-firestore",
+    plugins: []
+  }), 'GET');
+  workbox.registerRoute(/^https:\/\/securetoken\.googleapis\.com\/.*/i, new workbox.NetworkOnly({
+    "cacheName": "firebase-auth",
+    plugins: []
+  }), 'GET');
 
 }));

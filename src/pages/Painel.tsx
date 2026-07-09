@@ -1,6 +1,6 @@
 // src/pages/Painel.tsx
 
-import  { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { auth, db } from '../config/firebase'; 
 import { signOut } from 'firebase/auth';
 import { collection, query, where, onSnapshot, doc } from 'firebase/firestore'; 
@@ -13,13 +13,15 @@ import { ModuloServicos } from '../components/ModuloServicos';
 import { ModuloFuncionarios } from '../components/ModuloFuncionarios';
 import { ModuloSuperAdmin } from '../components/ModuloSuperAdmin';
 import { ModuloConfiguracoes } from '../components/ModuloConfiguracoes';
+import { ModuloAutomacaoWhatsApp } from '../components/ModuloAutomacaoWhatsApp'; // <-- IMPORTAÇÃO ADICIONADA
 
 interface PainelProps {
   perfil: { nome: string; companyId: string; role: string; } | null;
 }
 
 export function Painel({ perfil }: PainelProps) {
-  const [abaAtiva, setAbaAtiva] = useState<'agenda' | 'caixa' | 'estoque' | 'servicos' | 'funcionarios' | 'admin' | 'config'>('agenda');
+  // <-- ESTADO ATUALIZADO COM 'automacao'
+  const [abaAtiva, setAbaAtiva] = useState<'agenda' | 'caixa' | 'estoque' | 'servicos' | 'funcionarios' | 'admin' | 'config' | 'automacao'>('agenda');
   
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [menuExpandido, setMenuExpandido] = useState(() => {
@@ -32,7 +34,7 @@ export function Painel({ perfil }: PainelProps) {
   // ESTADOS DO MOTOR DE NOTIFICAÇÕES (Background) e BADGES
   const [configuracoesGlobais, setConfiguracoesGlobais] = useState<any>(null);
   const [agendamentosHoje, setAgendamentosHoje] = useState<any[]>([]);
-  const [contasVencidas, setContasVencidas] = useState<any[]>([]); // Adicionado estado para dívidas
+  const [contasVencidas, setContasVencidas] = useState<any[]>([]); 
 
   // 1. CARREGA AS CONFIGURAÇÕES, AGENDA DO DIA E CONTAS PARA O MOTOR DE NOTIFICAÇÕES
   useEffect(() => {
@@ -78,7 +80,6 @@ export function Painel({ perfil }: PainelProps) {
       const listaContas: any[] = [];
       snap.forEach(d => {
         const conta = d.data();
-        // Só joga pro estado se estiver vencendo hoje ou se já estiver atrasada
         if (conta.vencimento <= dataStr) {
           listaContas.push({ id: d.id, ...conta });
         }
@@ -135,7 +136,6 @@ export function Painel({ perfil }: PainelProps) {
           const horariosLembrete: string[] = configuracoesGlobais.horariosLembreteDivida;
           
           if (horariosLembrete.includes(horaAtual)) {
-            // Chave única para não disparar 2x no mesmo minuto
             const chaveDivida = `@NotificacaoDivida_${dataHoje}_${horaAtual}`;
             if (!localStorage.getItem(chaveDivida)) {
               new Notification("🔴 Lembrete de Contas a Pagar", {
@@ -297,7 +297,7 @@ export function Painel({ perfil }: PainelProps) {
                     onMouseOut={(e) => abaAtiva !== 'caixa' && (e.currentTarget.style.backgroundColor = 'transparent')}
                   >
                     <span>💰</span> {menuExpandido && <span style={{ animation: 'fadeIn 0.2s ease' }}>Caixa</span>}
-                    {/* BOLINHA VERMELHA (Só mostra se tem dívida E a aba não é o caixa) */}
+                    {/* BOLINHA VERMELHA */}
                     {contasVencidas.length > 0 && abaAtiva !== 'caixa' && (
                       <span style={{ position: 'absolute', top: '8px', right: '8px', width: '10px', height: '10px', backgroundColor: '#e74c3c', borderRadius: '50%', boxShadow: '0 0 5px rgba(231, 76, 60, 0.8)' }} title="Contas Pendentes!" />
                     )}
@@ -326,6 +326,17 @@ export function Painel({ perfil }: PainelProps) {
                   >
                     <span>👥</span> {menuExpandido && <span style={{ animation: 'fadeIn 0.2s ease' }}>Equipe</span>}
                   </button>
+                  
+                  {/* <-- BOTÃO DE AUTOMAÇÃO WHATSAPP ADICIONADO AQUI --> */}
+                  <button 
+                    style={estiloBotaoMenu('automacao')} 
+                    onClick={() => mudarAba('automacao')}
+                    onMouseOver={(e) => abaAtiva !== 'automacao' && (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.05)')}
+                    onMouseOut={(e) => abaAtiva !== 'automacao' && (e.currentTarget.style.backgroundColor = 'transparent')}
+                  >
+                    <span>🤖</span> {menuExpandido && <span style={{ animation: 'fadeIn 0.2s ease' }}>Automação (Bot)</span>}
+                  </button>
+                  
                   <button 
                     style={estiloBotaoMenu('config')} 
                     onClick={() => mudarAba('config')}
@@ -377,7 +388,6 @@ export function Painel({ perfil }: PainelProps) {
         position: 'relative'
       }}>
         
-        {/* Estilos Globais de Animação para este componente */}
         <style>{`
           @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
           @keyframes fadeInContent { 
@@ -403,6 +413,9 @@ export function Painel({ perfil }: PainelProps) {
           {abaAtiva === 'funcionarios' && perfil?.role === 'chefe' && <ModuloFuncionarios perfil={perfil} />}
           {abaAtiva === 'admin' && perfil?.role === 'super_admin' && <ModuloSuperAdmin />}
           {abaAtiva === 'config' && perfil?.role === 'chefe' && <ModuloConfiguracoes perfil={perfil} />}
+          
+          {/* <-- RENDERIZAÇÃO DO MÓDULO DE AUTOMAÇÃO WHATSAPP ADICIONADA AQUI --> */}
+          {abaAtiva === 'automacao' && perfil?.role === 'chefe' && <ModuloAutomacaoWhatsApp perfil={perfil} />}
         </div>
       </main>
     </div>
