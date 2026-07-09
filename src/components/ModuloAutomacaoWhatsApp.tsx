@@ -35,7 +35,7 @@ export function ModuloAutomacaoWhatsApp({ perfil }: ModuloAutomacaoProps) {
     msgConfirmacao: 'Perfeito! Seu agendamento está confirmado para {data} às {horario}. Te esperamos!',
   });
 
-  // CORREÇÃO 1: Monitorar apenas o string ID primitivo para evitar loops de recarregamento do Firebase
+  // CORREÇÃO 1: Monitorar apenas o string ID primitivo para evitar loops de recarregamento
   useEffect(() => {
     if (perfil?.companyId) {
       carregarConfiguracoes();
@@ -73,6 +73,37 @@ export function ModuloAutomacaoWhatsApp({ perfil }: ModuloAutomacaoProps) {
     }
   };
 
+  const registrarWebhook = async () => {
+    if (!perfil?.companyId) return;
+    setCarregando(true);
+    try {
+      const baseUrl = EVOLUTION_API_URL.replace(/\/$/, '');
+      const instanceName = perfil.companyId;
+
+      const response = await fetch(`${baseUrl}/webhook/instance/update/${instanceName}`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'apikey': EVOLUTION_API_KEY 
+        },
+        body: JSON.stringify({
+          webhookUrl: "https://agenda-control-seven.vercel.app/api/webhook-whatsapp",
+          webhookEvents: ["messages.upsert", "messages.update"]
+        })
+      });
+
+      if (response.ok) {
+        showToast('Webhook sincronizado com sucesso!', 'success');
+      } else {
+        showToast('Erro ao sincronizar Webhook.', 'error');
+      }
+    } catch (error) {
+      showToast('Erro de comunicação com o servidor.', 'error');
+    } finally {
+      setCarregando(false);
+    }
+  };
+
   const verificarStatusConexao = async () => {
     if (!perfil?.companyId) return;
     setStatusConexao('verificando');
@@ -88,11 +119,7 @@ export function ModuloAutomacaoWhatsApp({ perfil }: ModuloAutomacaoProps) {
 
       if (response.ok) {
         const data = await response.json();
-        if (data?.instance?.state === 'open') {
-          setStatusConexao('conectado');
-        } else {
-          setStatusConexao('desconectado');
-        }
+        setStatusConexao(data?.instance?.state === 'open' ? 'conectado' : 'desconectado');
       } else {
         setStatusConexao('desconectado');
       }
@@ -175,7 +202,6 @@ export function ModuloAutomacaoWhatsApp({ perfil }: ModuloAutomacaoProps) {
     <div style={{ padding: '20px', backgroundColor: '#fff', borderRadius: '8px', boxShadow: '0 2px 10px rgba(0,0,0,0.05)' }}>
       <h2 style={{ marginBottom: '20px', color: '#2c3e50' }}>🤖 Automação de Agendamento (WhatsApp)</h2>
 
-      {/* CHECKBOX DE ATIVAÇÃO SEMPRE VISÍVEL */}
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: '20px', padding: '15px', backgroundColor: '#f9fbfd', borderRadius: '8px', border: '1px solid #e1e8ed' }}>
         <input 
           type="checkbox" 
@@ -191,130 +217,87 @@ export function ModuloAutomacaoWhatsApp({ perfil }: ModuloAutomacaoProps) {
       {config.ativo && (
         <div style={{ animation: 'fadeIn 0.3s' }}>
 
-          {/* ESTADO 1: VERIFICANDO CONEXÃO */}
           {statusConexao === 'verificando' && (
             <p style={{ textAlign: 'center', color: '#7f8c8d', padding: '20px' }}>⏳ Verificando status de conexão com o WhatsApp...</p>
           )}
 
-          {/* ESTADO 2: DESCONECTADO */}
           {statusConexao === 'desconectado' && (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f9fbfd', padding: '30px', borderRadius: '8px', border: '1px solid #e1e8ed' }}>
               <h3 style={{ color: '#e74c3c', marginBottom: '15px', textAlign: 'center' }}>WhatsApp Desconectado</h3>
-              <p style={{ textAlign: 'center', color: '#7f8c8d', marginBottom: '20px', fontSize: '14px', maxWidth: '400px' }}>
-                Para que o robô funcione, clique no botão abaixo para gerar o QR Code e escaneie com o WhatsApp da sua empresa.
-              </p>
-
-              <button onClick={gerarQrCode} disabled={carregando} style={{ padding: '12px 20px', backgroundColor: '#25D366', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', width: '100%', maxWidth: '300px', marginBottom: '20px', boxShadow: '0 4px 10px rgba(37, 211, 102, 0.3)' }}>
-                {carregando ? '⏳ Carregando...' : '📲 Gerar QR Code para Conectar'}
+              <button onClick={gerarQrCode} disabled={carregando} style={{ padding: '12px 20px', backgroundColor: '#25D366', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', width: '100%', maxWidth: '300px', marginBottom: '20px' }}>
+                {carregando ? '⏳ Carregando...' : '📲 Gerar QR Code'}
               </button>
-
               {qrCode && (
                 <div style={{ textAlign: 'center', padding: '15px', backgroundColor: 'white', borderRadius: '8px', border: '1px solid #eee', width: '100%', maxWidth: '300px' }}>
-                  <p style={{ marginBottom: '15px', fontWeight: 'bold', color: '#2c3e50' }}>Aponte a câmera:</p>
                   <img src={qrCode} alt="QR Code WhatsApp" style={{ width: '100%', height: 'auto', borderRadius: '8px' }} />
                 </div>
               )}
             </div>
           )}
 
-          {/* ESTADO 3: CONECTADO */}
           {statusConexao === 'conectado' && (
             <div style={{ backgroundColor: '#f9fbfd', padding: '20px', borderRadius: '8px', border: '1px solid #e1e8ed' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                 <h3 style={{ color: '#27ae60', margin: 0 }}>✅ WhatsApp Conectado</h3>
-                <button onClick={verificarStatusConexao} style={{ background: 'transparent', border: '1px solid #bdc3c7', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
-                  ↻ Atualizar Status
-                </button>
-              </div>
-
-              <hr style={{ margin: '20px 0', borderColor: '#ecf0f1' }} />
-
-              <h3 style={{ color: '#34495e', marginBottom: '10px' }}>💬 Personalizar Mensagens</h3>
-              
-              {/* BARRA DE VARIÁVEIS */}
-              <div style={{ backgroundColor: '#ffffff', padding: '15px', borderRadius: '8px', border: '1px solid #bdc3c7', marginBottom: '20px' }}>
-                <p style={{ fontSize: '13px', color: '#7f8c8d', margin: '0 0 10px 0' }}>Clique em um campo de texto abaixo e depois clique na tag para inseri-la automaticamente:</p>
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  {variaveis.map(variavel => (
-                    <span 
-                      key={variavel} 
-                      // CORREÇÃO 2: onMouseDown com preventDefault impede o campo de perder o foco e sumir com o texto
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        adicionarVariavel(variavel);
-                      }} 
-                      style={{ background: '#ecf0f1', border: '1px solid #bdc3c7', padding: '6px 12px', borderRadius: '20px', fontSize: '13px', cursor: 'pointer', fontWeight: 'bold', color: '#2c3e50', transition: 'background 0.2s', userSelect: 'none' }} 
-                      onMouseOver={e => e.currentTarget.style.backgroundColor = '#dfe6e9'} 
-                      onMouseOut={e => e.currentTarget.style.backgroundColor = '#ecf0f1'}
-                    >
-                      {variavel}
-                    </span>
-                  ))}
+                <div style={{ display: 'flex', gap: '10px' }}>
+                    <button onClick={registrarWebhook} style={{ background: '#9b59b6', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
+                        🔄 Sincronizar Webhook
+                    </button>
+                    <button onClick={verificarStatusConexao} style={{ background: 'transparent', border: '1px solid #bdc3c7', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
+                        ↻ Atualizar
+                    </button>
                 </div>
               </div>
 
-              {/* CAMPOS DE MENSAGEM */}
-              <label style={{ fontWeight: 'bold', fontSize: '12px', color: '#7f8c8d' }}>Mensagem de Boas-vindas</label>
-              <textarea 
-                value={config.msgBoasVindas} 
-                onChange={e => setConfig({...config, msgBoasVindas: e.target.value})} 
-                onFocus={() => setCampoFocado('msgBoasVindas')}
-                style={{...inputStyle, height: '70px', resize: 'none', borderColor: campoFocado === 'msgBoasVindas' ? '#3498db' : '#ccc'}} 
-              />
+              <hr style={{ margin: '20px 0', borderColor: '#ecf0f1' }} />
+              
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '20px' }}>
+                {variaveis.map(variavel => (
+                  <span 
+                    key={variavel} 
+                    // CORREÇÃO 2: onMouseDown com preventDefault impede o campo de perder o foco
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      adicionarVariavel(variavel);
+                    }} 
+                    style={{ background: '#ecf0f1', padding: '6px 12px', borderRadius: '20px', fontSize: '13px', cursor: 'pointer', fontWeight: 'bold' }} 
+                  >
+                    {variavel}
+                  </span>
+                ))}
+              </div>
 
-              <label style={{ fontWeight: 'bold', fontSize: '12px', color: '#7f8c8d' }}>Pedido de Serviço (Bot listará os serviços abaixo)</label>
-              <textarea 
-                value={config.msgServicos} 
-                onChange={e => setConfig({...config, msgServicos: e.target.value})} 
-                onFocus={() => setCampoFocado('msgServicos')}
-                style={{...inputStyle, height: '50px', resize: 'none', borderColor: campoFocado === 'msgServicos' ? '#3498db' : '#ccc'}} 
-              />
+              <label style={{ fontWeight: 'bold', fontSize: '12px', color: '#7f8c8d' }}>Mensagem de Boas-vindas</label>
+              <textarea value={config.msgBoasVindas} onChange={e => setConfig({...config, msgBoasVindas: e.target.value})} onFocus={() => setCampoFocado('msgBoasVindas')} style={{...inputStyle, height: '70px', resize: 'none'}} />
+
+              <label style={{ fontWeight: 'bold', fontSize: '12px', color: '#7f8c8d' }}>Pedido de Serviço</label>
+              <textarea value={config.msgServicos} onChange={e => setConfig({...config, msgServicos: e.target.value})} onFocus={() => setCampoFocado('msgServicos')} style={{...inputStyle, height: '50px', resize: 'none'}} />
 
               <label style={{ fontWeight: 'bold', fontSize: '12px', color: '#7f8c8d' }}>Pedido de Data</label>
-              <textarea 
-                value={config.msgData} 
-                onChange={e => setConfig({...config, msgData: e.target.value})} 
-                onFocus={() => setCampoFocado('msgData')}
-                style={{...inputStyle, height: '50px', resize: 'none', borderColor: campoFocado === 'msgData' ? '#3498db' : '#ccc'}} 
-              />
+              <textarea value={config.msgData} onChange={e => setConfig({...config, msgData: e.target.value})} onFocus={() => setCampoFocado('msgData')} style={{...inputStyle, height: '50px', resize: 'none'}} />
 
-              <label style={{ fontWeight: 'bold', fontSize: '12px', color: '#7f8c8d' }}>Pedido de Horário (Bot listará os horários abaixo)</label>
-              <textarea 
-                value={config.msgHorario} 
-                onChange={e => setConfig({...config, msgHorario: e.target.value})} 
-                onFocus={() => setCampoFocado('msgHorario')}
-                style={{...inputStyle, height: '50px', resize: 'none', borderColor: campoFocado === 'msgHorario' ? '#3498db' : '#ccc'}} 
-              />
+              <label style={{ fontWeight: 'bold', fontSize: '12px', color: '#7f8c8d' }}>Pedido de Horário</label>
+              <textarea value={config.msgHorario} onChange={e => setConfig({...config, msgHorario: e.target.value})} onFocus={() => setCampoFocado('msgHorario')} style={{...inputStyle, height: '50px', resize: 'none'}} />
 
               <label style={{ fontWeight: 'bold', fontSize: '12px', color: '#7f8c8d' }}>Confirmação Final</label>
-              <textarea 
-                value={config.msgConfirmacao} 
-                onChange={e => setConfig({...config, msgConfirmacao: e.target.value})} 
-                onFocus={() => setCampoFocado('msgConfirmacao')}
-                style={{...inputStyle, height: '70px', resize: 'none', borderColor: campoFocado === 'msgConfirmacao' ? '#3498db' : '#ccc'}} 
-              />
+              <textarea value={config.msgConfirmacao} onChange={e => setConfig({...config, msgConfirmacao: e.target.value})} onFocus={() => setCampoFocado('msgConfirmacao')} style={{...inputStyle, height: '70px', resize: 'none'}} />
             </div>
           )}
-
         </div>
       )}
 
-      {/* BOTÃO SALVAR */}
       {config.ativo && (
         <>
           <hr style={{ margin: '30px 0', borderColor: '#ecf0f1' }} />
           <button 
             onClick={salvarConfiguracoes} 
             disabled={carregando} 
-            style={{ padding: '15px 30px', backgroundColor: '#3498db', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '16px', cursor: 'pointer', width: '100%', transition: 'background 0.2s' }} 
-            onMouseOver={e => e.currentTarget.style.backgroundColor = '#2980b9'} 
-            onMouseOut={e => e.currentTarget.style.backgroundColor = '#3498db'}
+            style={{ padding: '15px 30px', backgroundColor: '#3498db', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', width: '100%', cursor: 'pointer' }}
           >
             {carregando ? 'Salvando...' : '💾 Salvar Configurações'}
           </button>
         </>
       )}
-
     </div>
   );
 }

@@ -12,7 +12,7 @@ export default defineConfig({
       // Se já tinha um bloco "manifest: { ... }", pode colá-lo aqui.
       manifest: {
         name: 'Sistema de Agendamentos',
-        short_name: 'Agendamentos',
+        short_name: 'Agenda+',
         theme_color: '#ffffff',
         background_color: '#ffffff',
         display: 'standalone',
