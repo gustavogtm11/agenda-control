@@ -1,17 +1,14 @@
 // src/components/ModuloConfiguracoes.tsx
 
 import React, { useState, useEffect } from 'react';
-import { db} from '../config/firebase';
+import { db } from '../config/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { useToast } from '../App';
 
 // ==========================================
-// FUNÇÕES UTILITÁRIAS PARA LÓGICA DE ALMOÇO
+// FUNÇÕES UTILITÁRIAS
 // ==========================================
 
-/**
- * Converte uma string de horário "HH:MM" em minutos totais desde o início do dia.
- */
 const converterParaMinutos = (horarioStr: string): number => {
   const [horas, minutos] = horarioStr.split(':').map(Number);
   return horas * 60 + minutos;
@@ -23,34 +20,22 @@ interface HorarioAlmoco {
   fim: string; 
 }
 
-/**
- * Verifica se um agendamento invade o horário de almoço (Lógica de Encaixe).
- * Aplica uma margem não visual de +1min/-1min para evitar conflitos nas bordas cravadas.
- */
 export const verificarInvasaoAlmoco = (inicioServico: string, fimServico: string, almoco: HorarioAlmoco): boolean => {
   if (!almoco.ativo) return false;
 
   const inicioAgendamento = converterParaMinutos(inicioServico);
   const fimAgendamento = converterParaMinutos(fimServico);
-  
-  // Lógica não visual: Ajuste de 1 minuto nas bordas internas para evitar falsos positivos
   const inicioAlmocoLogico = converterParaMinutos(almoco.inicio) + 1;
   const fimAlmocoLogico = converterParaMinutos(almoco.fim) - 1;
 
-  // Se o agendamento começa antes do fim do almoço E termina após o início do almoço
   return inicioAgendamento < fimAlmocoLogico && fimAgendamento > inicioAlmocoLogico;
 };
-
-// ==========================================
-// TIPAGENS E CONFIGURAÇÕES PADRÃO
-// ==========================================
 
 interface ModuloConfiguracoesProps {
   perfil: { companyId: string } | null;
 }
 
 type DiaSemana = 'domingo' | 'segunda' | 'terca' | 'quarta' | 'quinta' | 'sexta' | 'sabado';
-
 interface HorarioDia { ativo: boolean; inicio: string; fim: string; }
 type HorariosFuncionamento = Record<DiaSemana, HorarioDia>;
 
@@ -85,85 +70,56 @@ export function ModuloConfiguracoes({ perfil }: ModuloConfiguracoesProps) {
   const [novoDiaBloqueado, setNovoDiaBloqueado] = useState('');
   const [mensagemLembrete, setMensagemLembrete] = useState(mensagemPadrao);
   
-  // Controle de Notificação - Permissão
-  const [permissaoNotificacao, setPermissaoNotificacao] = useState<string>(Notification.permission);
+  // CORREÇÃO: Verificação segura para evitar crash em dispositivos sem suporte a notificações
+  const [permissaoNotificacao, setPermissaoNotificacao] = useState<string>(
+    typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'denied'
+  );
   
-  // Controle de Notificação - Agenda
   const [notificacaoAgendaAtiva, setNotificacaoAgendaAtiva] = useState(true);
   const [minutosAvisoPrevioAgenda, setMinutosAvisoPrevioAgenda] = useState<number>(30); 
-  
-  // Controle de Notificação - Caixa
   const [notificacaoCaixaAtiva, setNotificacaoCaixaAtiva] = useState(true);
   const [horarioFechamentoCaixa, setHorarioFechamentoCaixa] = useState('18:00');
-
-  // Controle de Notificação - Dívidas
   const [notificacaoDividasAtiva, setNotificacaoDividasAtiva] = useState(true);
   const [qtdLembretesDivida, setQtdLembretesDivida] = useState(1);
   const [horariosLembreteDivida, setHorariosLembreteDivida] = useState<string[]>(['08:00']);
   
   const [salvando, setSalvando] = useState(false);
 
-  // Monitora redimensionamento para o Dropdown
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 768);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Carregamento inicial das configurações diretamente do documento do usuário
-useEffect(() => {
-  if (!perfil) return;
+  useEffect(() => {
+    if (!perfil) return;
+    const companyId = perfil.companyId;
 
-  const companyId = perfil.companyId;
+    async function carregarConfiguracoes() {
+      try {
+        const empresaRef = doc(db, "empresas", companyId);
+        const empresaSnap = await getDoc(empresaRef);
 
-  async function carregarConfiguracoes() {
-    try {
-      const empresaRef = doc(db, "empresas", companyId);
-      const empresaSnap = await getDoc(empresaRef);
-
-      if (empresaSnap.exists() && empresaSnap.data().configuracoesGlobais) {
-        const dados = empresaSnap.data().configuracoesGlobais;
-
-        if (dados.horariosFuncionamento)
-          setHorarios(dados.horariosFuncionamento);
-
-        if (dados.horarioAlmoco)
-          setAlmoco(dados.horarioAlmoco);
-
-        if (dados.diasBloqueados)
-          setDiasBloqueados(dados.diasBloqueados);
-
-        if (dados.mensagemLembrete)
-          setMensagemLembrete(dados.mensagemLembrete);
-
-        if (dados.notificacaoAgendaAtiva !== undefined)
-          setNotificacaoAgendaAtiva(dados.notificacaoAgendaAtiva);
-
-        if (dados.minutosAvisoPrevioAgenda !== undefined)
-          setMinutosAvisoPrevioAgenda(dados.minutosAvisoPrevioAgenda);
-
-        if (dados.notificacaoCaixaAtiva !== undefined)
-          setNotificacaoCaixaAtiva(dados.notificacaoCaixaAtiva);
-
-        if (dados.horarioFechamentoCaixa)
-          setHorarioFechamentoCaixa(dados.horarioFechamentoCaixa);
-
-        if (dados.notificacaoDividasAtiva !== undefined)
-          setNotificacaoDividasAtiva(dados.notificacaoDividasAtiva);
-
-        if (dados.qtdLembretesDivida !== undefined)
-          setQtdLembretesDivida(dados.qtdLembretesDivida);
-
-        if (dados.horariosLembreteDivida)
-          setHorariosLembreteDivida(dados.horariosLembreteDivida);
+        if (empresaSnap.exists() && empresaSnap.data().configuracoesGlobais) {
+          const dados = empresaSnap.data().configuracoesGlobais;
+          if (dados.horariosFuncionamento) setHorarios(dados.horariosFuncionamento);
+          if (dados.horarioAlmoco) setAlmoco(dados.horarioAlmoco);
+          if (dados.diasBloqueados) setDiasBloqueados(dados.diasBloqueados);
+          if (dados.mensagemLembrete) setMensagemLembrete(dados.mensagemLembrete);
+          if (dados.notificacaoAgendaAtiva !== undefined) setNotificacaoAgendaAtiva(dados.notificacaoAgendaAtiva);
+          if (dados.minutosAvisoPrevioAgenda !== undefined) setMinutosAvisoPrevioAgenda(dados.minutosAvisoPrevioAgenda);
+          if (dados.notificacaoCaixaAtiva !== undefined) setNotificacaoCaixaAtiva(dados.notificacaoCaixaAtiva);
+          if (dados.horarioFechamentoCaixa) setHorarioFechamentoCaixa(dados.horarioFechamentoCaixa);
+          if (dados.notificacaoDividasAtiva !== undefined) setNotificacaoDividasAtiva(dados.notificacaoDividasAtiva);
+          if (dados.qtdLembretesDivida !== undefined) setQtdLembretesDivida(dados.qtdLembretesDivida);
+          if (dados.horariosLembreteDivida) setHorariosLembreteDivida(dados.horariosLembreteDivida);
+        }
+      } catch (error) {
+        console.error("Erro ao carregar configurações:", error);
       }
-    } catch (error) {
-      console.error("Erro ao carregar configurações:", error);
     }
-  }
-
-  carregarConfiguracoes();
-}, [perfil?.companyId]);
+    carregarConfiguracoes();
+  }, [perfil?.companyId]);
 
   const solicitarPermissaoNotificacao = async () => {
     if (!("Notification" in window)) {
@@ -224,59 +180,37 @@ useEffect(() => {
   };
 
   async function salvarConfiguracoes(e: React.FormEvent) {
-  e.preventDefault();
-
-  if (!perfil) {
-    showToast(
-      "Não foi possível identificar sua empresa. Faça login novamente.",
-      "error"
-    );
-    return;
+    e.preventDefault();
+    if (!perfil) {
+        showToast("Não foi possível identificar sua empresa. Faça login novamente.", "error");
+        return;
+    }
+    setSalvando(true);
+    try {
+        const dadosConfig = {
+            horariosFuncionamento: horarios,
+            horarioAlmoco: almoco,
+            diasBloqueados,
+            mensagemLembrete,
+            notificacaoAgendaAtiva,
+            minutosAvisoPrevioAgenda,
+            notificacaoCaixaAtiva,
+            horarioFechamentoCaixa,
+            notificacaoDividasAtiva,
+            qtdLembretesDivida,
+            horariosLembreteDivida,
+        };
+        const empresaRef = doc(db, "empresas", perfil.companyId);
+        await setDoc(empresaRef, { configuracoesGlobais: dadosConfig }, { merge: true });
+        showToast("Configurações da empresa salvas com sucesso!", "success");
+    } catch (error: any) {
+        showToast("Erro ao salvar configurações: " + error.message, "error");
+    } finally {
+        setSalvando(false);
+    }
   }
-
-  setSalvando(true);
-
-  try {
-    const dadosConfig = {
-      horariosFuncionamento: horarios,
-      horarioAlmoco: almoco,
-      diasBloqueados,
-      mensagemLembrete,
-      notificacaoAgendaAtiva,
-      minutosAvisoPrevioAgenda,
-      notificacaoCaixaAtiva,
-      horarioFechamentoCaixa,
-      notificacaoDividasAtiva,
-      qtdLembretesDivida,
-      horariosLembreteDivida,
-    };
-
-    const empresaRef = doc(db, "empresas", perfil.companyId);
-
-    await setDoc(
-      empresaRef,
-      {
-        configuracoesGlobais: dadosConfig,
-      },
-      { merge: true }
-    );
-
-    showToast(
-      "Configurações da empresa salvas com sucesso!",
-      "success"
-    );
-  } catch (error: any) {
-    showToast(
-      "Erro ao salvar configurações: " + error.message,
-      "error"
-    );
-  } finally {
-    setSalvando(false);
-  }
-}
 
   const inputStyle = { padding: '10px', borderRadius: '6px', border: '1px solid #bdc3c7', backgroundColor: '#ffffff', color: '#2c3e50', fontSize: '15px', outline: 'none', transition: 'border 0.2s', width: '100%', boxSizing: 'border-box' as const };
-
   const tabStyle = (aba: string) => ({
     padding: '12px 20px', cursor: 'pointer', border: 'none',
     borderBottom: abaAtiva === aba ? '3px solid #3498db' : '3px solid transparent',
@@ -312,8 +246,8 @@ useEffect(() => {
         )}
 
         <form onSubmit={salvarConfiguracoes}>
-            {abaAtiva === 'expediente' && (
-                <div style={{ animation: 'fadeIn 0.3s' }}>
+            {abaAtiva === 'expediente' && ( /* ... restante do seu formulário ... */
+               <div style={{ animation: 'fadeIn 0.3s' }}>
                     <div style={{ backgroundColor: '#f9fbfd', padding: '20px', borderRadius: '8px', border: '1px solid #e1e8ed', marginBottom: '20px' }}>
                         <h4 style={{ margin: '0 0 15px 0', color: '#34495e' }}>🕒 Horários de Atendimento</h4>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
