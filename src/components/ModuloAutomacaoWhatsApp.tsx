@@ -9,7 +9,7 @@ import { useToast } from '../App';
 // CONFIGURAÇÕES GLOBAIS DA SUA EVOLUTION API (Fixo no código)
 // ============================================================================
 const EVOLUTION_API_URL = "https://api-bot-igcx.onrender.com"; 
-const EVOLUTION_API_KEY = import.meta.env.VITE_API_BOT_KEY; 
+const EVOLUTION_API_KEY = "99886578Gtm11."; 
 
 interface ModuloAutomacaoProps {
   perfil: { companyId: string; role: string } | null;
