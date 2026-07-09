@@ -13,14 +13,13 @@ import { ModuloServicos } from '../components/ModuloServicos';
 import { ModuloFuncionarios } from '../components/ModuloFuncionarios';
 import { ModuloSuperAdmin } from '../components/ModuloSuperAdmin';
 import { ModuloConfiguracoes } from '../components/ModuloConfiguracoes';
-import { ModuloAutomacaoWhatsApp } from '../components/ModuloAutomacaoWhatsApp'; // <-- IMPORTAÇÃO ADICIONADA
+import { ModuloAutomacaoWhatsApp } from '../components/ModuloAutomacaoWhatsApp';
 
 interface PainelProps {
   perfil: { nome: string; companyId: string; role: string; } | null;
 }
 
 export function Painel({ perfil }: PainelProps) {
-  // <-- ESTADO ATUALIZADO COM 'automacao'
   const [abaAtiva, setAbaAtiva] = useState<'agenda' | 'caixa' | 'estoque' | 'servicos' | 'funcionarios' | 'admin' | 'config' | 'automacao'>('agenda');
   
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -92,7 +91,8 @@ export function Painel({ perfil }: PainelProps) {
 
   // 2. O RELÓGIO (MOTOR DE NOTIFICAÇÕES)
   useEffect(() => {
-    if (!configuracoesGlobais || Notification.permission !== 'granted') return;
+    // ALTERAÇÃO DE SEGURANÇA: adicionado !('Notification' in window) para não quebrar em celulares sem suporte
+    if (!configuracoesGlobais || !('Notification' in window) || Notification.permission !== 'granted') return;
 
     const intervalo = setInterval(() => {
         const agora = new Date();
@@ -297,7 +297,6 @@ export function Painel({ perfil }: PainelProps) {
                     onMouseOut={(e) => abaAtiva !== 'caixa' && (e.currentTarget.style.backgroundColor = 'transparent')}
                   >
                     <span>💰</span> {menuExpandido && <span style={{ animation: 'fadeIn 0.2s ease' }}>Caixa</span>}
-                    {/* BOLINHA VERMELHA */}
                     {contasVencidas.length > 0 && abaAtiva !== 'caixa' && (
                       <span style={{ position: 'absolute', top: '8px', right: '8px', width: '10px', height: '10px', backgroundColor: '#e74c3c', borderRadius: '50%', boxShadow: '0 0 5px rgba(231, 76, 60, 0.8)' }} title="Contas Pendentes!" />
                     )}
@@ -326,8 +325,6 @@ export function Painel({ perfil }: PainelProps) {
                   >
                     <span>👥</span> {menuExpandido && <span style={{ animation: 'fadeIn 0.2s ease' }}>Equipe</span>}
                   </button>
-                  
-                  {/* <-- BOTÃO DE AUTOMAÇÃO WHATSAPP ADICIONADO AQUI --> */}
                   <button 
                     style={estiloBotaoMenu('automacao')} 
                     onClick={() => mudarAba('automacao')}
@@ -336,7 +333,6 @@ export function Painel({ perfil }: PainelProps) {
                   >
                     <span>🤖</span> {menuExpandido && <span style={{ animation: 'fadeIn 0.2s ease' }}>Automação (Bot)</span>}
                   </button>
-                  
                   <button 
                     style={estiloBotaoMenu('config')} 
                     onClick={() => mudarAba('config')}
@@ -413,8 +409,6 @@ export function Painel({ perfil }: PainelProps) {
           {abaAtiva === 'funcionarios' && perfil?.role === 'chefe' && <ModuloFuncionarios perfil={perfil} />}
           {abaAtiva === 'admin' && perfil?.role === 'super_admin' && <ModuloSuperAdmin />}
           {abaAtiva === 'config' && perfil?.role === 'chefe' && <ModuloConfiguracoes perfil={perfil} />}
-          
-          {/* <-- RENDERIZAÇÃO DO MÓDULO DE AUTOMAÇÃO WHATSAPP ADICIONADA AQUI --> */}
           {abaAtiva === 'automacao' && perfil?.role === 'chefe' && <ModuloAutomacaoWhatsApp perfil={perfil} />}
         </div>
       </main>

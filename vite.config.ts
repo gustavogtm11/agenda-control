@@ -16,6 +16,19 @@ export default defineConfig({
         theme_color: '#ffffff',
         background_color: '#ffffff',
         display: 'standalone',
+        icons:[
+          {
+            src: 'pwa-192x192.png', // Lembre-se de colocar essas imagens na pasta 'public'
+            sizes: '192x192',
+            type: 'image/png'
+          },
+          {
+            src: 'pwa-512x512.png', // Lembre-se de colocar essas imagens na pasta 'public'
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any maskable'
+          }
+        ]
       },
 
       // 1. RESOLVE O ERRO DE MIME TYPE NO MODO DEV (text/html)
