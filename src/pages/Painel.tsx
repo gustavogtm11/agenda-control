@@ -91,8 +91,17 @@ export function Painel({ perfil }: PainelProps) {
 
   // 2. O RELÓGIO (MOTOR DE NOTIFICAÇÕES)
   useEffect(() => {
-    // ALTERAÇÃO DE SEGURANÇA: adicionado !('Notification' in window) para não quebrar em celulares sem suporte
-    if (!configuracoesGlobais || !('Notification' in window) || Notification.permission !== 'granted') return;
+    // ALTERAÇÃO DE SEGURANÇA EXTREMA PARA O IOS: Validação segura da API de Notifications
+    const hasNotificationAPI = typeof window !== 'undefined' && 'Notification' in window;
+    
+    if (!configuracoesGlobais || !hasNotificationAPI) return;
+    
+    // Evita ler o .permission caso a API exista mas não permita a leitura em alguns webviews do iOS
+    try {
+      if (window.Notification.permission !== 'granted') return;
+    } catch (e) {
+      return;
+    }
 
     const intervalo = setInterval(() => {
         const agora = new Date();
@@ -230,7 +239,21 @@ export function Painel({ perfil }: PainelProps) {
   };
 
   return (
-    <div style={{ display: 'flex', height: '100vh', width: '100%', fontFamily: "'Segoe UI', Roboto, Helvetica, Arial, sans-serif", margin: 0, backgroundColor: '#f5f6fa', overflow: 'hidden', boxSizing: 'border-box' }}>
+    <div style={{ 
+      display: 'flex', 
+      /* CORREÇÃO PARA IOS SAFARI: position fixed ao invés de height 100vh para impedir a barra de endereço de quebrar o layout */
+      position: 'fixed',
+      top: 0,
+      bottom: 0,
+      left: 0,
+      right: 0,
+      width: '100%', 
+      fontFamily: "'Segoe UI', Roboto, Helvetica, Arial, sans-serif", 
+      margin: 0, 
+      backgroundColor: '#f5f6fa', 
+      overflow: 'hidden', 
+      boxSizing: 'border-box' 
+    }}>
       
       {/* OVERLAY MOBILE: Fundo escurecido ao abrir o menu em telas pequenas */}
       {isMobile && menuExpandido && (
@@ -253,10 +276,11 @@ export function Painel({ perfil }: PainelProps) {
         position: isMobile ? 'fixed' : 'relative',
         top: isMobile ? 0 : undefined,
         left: isMobile ? 0 : undefined,
-        height: '100vh', 
+        height: '100%', /* CORREÇÃO: Pega a altura do pai (fixed) */
         zIndex: 50, 
         overflowY: 'auto',
         overflowX: 'hidden',
+        WebkitOverflowScrolling: 'touch', /* CORREÇÃO: Garante scroll suave em dispositivos Apple */
         boxSizing: 'border-box',
         boxShadow: isMobile ? '4px 0 15px rgba(0,0,0,0.3)' : 'none'
       }}>
@@ -378,7 +402,8 @@ export function Painel({ perfil }: PainelProps) {
         padding: isMobile ? '15px' : '30px', 
         overflowY: 'auto', 
         overflowX: 'hidden', 
-        height: '100vh',
+        height: '100%', /* CORREÇÃO: Herda a altura do parent, removendo o bug do 100vh no iOS */
+        WebkitOverflowScrolling: 'touch', /* CORREÇÃO: Garante que a área principal role suavemente no iOS */
         boxSizing: 'border-box',
         backgroundColor: '#f5f6fa',
         position: 'relative'

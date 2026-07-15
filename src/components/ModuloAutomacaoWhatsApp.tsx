@@ -8,8 +8,8 @@ import { useToast } from '../App';
 // ============================================================================
 // CONFIGURAÇÕES GLOBAIS DA SUA EVOLUTION API (Fixo no código)
 // ============================================================================
-const EVOLUTION_API_URL = "https://api-bot-igcx.onrender.com"; 
-const EVOLUTION_API_KEY = "99886578Gtm11."; 
+const EVOLUTION_API_URL = "http://localhost:8080/"; 
+const EVOLUTION_API_KEY = "150215"; 
 
 interface ModuloAutomacaoProps {
   perfil: { companyId: string; role: string } | null;
@@ -87,7 +87,7 @@ export function ModuloAutomacaoWhatsApp({ perfil }: ModuloAutomacaoProps) {
           'apikey': EVOLUTION_API_KEY 
         },
         body: JSON.stringify({
-          webhookUrl: "https://agenda-control-seven.vercel.app/api/webhook-whatsapp",
+          webhookUrl: "http://192.168.0.X:3000/api/webhook-whatsapp",
           webhookEvents: ["messages.upsert", "messages.update"]
         })
       });

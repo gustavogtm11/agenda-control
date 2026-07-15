@@ -58,8 +58,8 @@ async function salvarAgendamentoNoFirestore(dadosAgendamento) {
 // ============================================================================
 async function enviarMensagemEvolution(telefone, texto, instanceName) {
     // A URL deve apontar para o Render onde sua Evolution API está hospedada
-    const url = `https://api-bot-igcx.onrender.com/message/sendText/${instanceName}`;
-    const apikey = "99886578Gtm11."; // Sua chave da aba Environment do Render
+    const url = `http://localhost:8080/message/sendText/${instanceName}`;
+    const apikey = "150215"; // Sua chave da aba Environment do Render
 
     try {
         await fetch(url, {
@@ -128,6 +128,7 @@ async function buscarEEnviarHorarios(dataBanco, telefone, estadoAtual, config, i
 // 4. HANDLER PRINCIPAL (Onde o Webhook bate)
 // ============================================================================
 export default async function handler(req, res) {
+    console.log("PAYLOAD RECEBIDO:", JSON.stringify(req.body, null, 2));
     // Ignora chamadas que não sejam POST (ex: acessos pelo navegador)
     if (req.method !== 'POST') return res.status(200).send('Webhook rodando.');
   
