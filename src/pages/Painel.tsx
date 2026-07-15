@@ -349,14 +349,14 @@ export function Painel({ perfil }: PainelProps) {
                   >
                     <span>👥</span> {menuExpandido && <span style={{ animation: 'fadeIn 0.2s ease' }}>Equipe</span>}
                   </button>
-                  <button 
+                  {/* <button 
                     style={estiloBotaoMenu('automacao')} 
                     onClick={() => mudarAba('automacao')}
                     onMouseOver={(e) => abaAtiva !== 'automacao' && (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.05)')}
                     onMouseOut={(e) => abaAtiva !== 'automacao' && (e.currentTarget.style.backgroundColor = 'transparent')}
                   >
                     <span>🤖</span> {menuExpandido && <span style={{ animation: 'fadeIn 0.2s ease' }}>Automação (Bot)</span>}
-                  </button>
+                  </button> */}
                   <button 
                     style={estiloBotaoMenu('config')} 
                     onClick={() => mudarAba('config')}
