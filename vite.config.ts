@@ -12,13 +12,13 @@ export default defineConfig({
       // Se já tinha um bloco "manifest: { ... }", pode colá-lo aqui.
       manifest: {
         name: 'Sistema de Agendamentos',
-        short_name: 'Agenda+',
+        short_name: 'Gestão Inteligente',
         theme_color: '#ffffff',
         background_color: '#ffffff',
         display: 'standalone',
         icons:[
           {
-            src: 'pwa-192x192.png', // Lembre-se de colocar essas imagens na pasta 'public'
+            src: 'favicon.png', // Lembre-se de colocar essas imagens na pasta 'public'
             sizes: '192x192',
             type: 'image/png'
           },
