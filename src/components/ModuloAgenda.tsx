@@ -8,7 +8,8 @@ import '../App.css';
 import { Toaster, toast } from "sonner";
 
 interface ModuloAgendaProps {
-  perfil: { companyId: string; role: string } | null;
+  // Ajustado para receber email e nome, necessários para o OneSignal
+  perfil: { companyId: string; role: string; nome?: string; email?: string } | null;
 }
 
 interface Servico { id: string; nome: string; preco: number; duracaoMinutos: number; materiaisConsumidos?: { nomeMaterial: string, quantidade: string }[]; }
@@ -27,6 +28,8 @@ interface Agendamento {
   googleEventId?: string; 
   googleSyncPending?: boolean; 
   transacaoCaixaId?: string; 
+  notificado30Min?: boolean;
+  bloquearConclusaoAuto?: boolean;
 }
 
 type DiaSemana = 'domingo' | 'segunda' | 'terca' | 'quarta' | 'quinta' | 'sexta' | 'sabado';
@@ -53,6 +56,17 @@ const gerarHorarios = () => {
   return horarios;
 };
 
+// --- FUNÇÃO AUXILIAR DO ONESIGNAL ---
+const formatarDataOneSignal = (data: Date) => {
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  const offset = -data.getTimezoneOffset();
+  const sign = offset >= 0 ? '+' : '-';
+  const hours = pad(Math.floor(Math.abs(offset) / 60));
+  const mins = pad(Math.abs(offset) % 60);
+  
+  return `${data.getFullYear()}-${pad(data.getMonth() + 1)}-${pad(data.getDate())} ${pad(data.getHours())}:${pad(data.getMinutes())}:${pad(data.getSeconds())} GMT${sign}${hours}${mins}`;
+};
+
 export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   const [servicosDisponiveis, setServicosDisponiveis] = useState<Servico[]>([]);
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
@@ -62,6 +76,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   const [almocoConfig, setAlmocoConfig] = useState<any>(null);
   const [diasBloqueadosConfig, setDiasBloqueadosConfig] = useState<string[]>([]);
   const [mensagemLembreteConfig, setMensagemLembreteConfig] = useState<string>('');
+  const [tempoLembreteConfig, setTempoLembreteConfig] = useState<number>(30); // Estado para o tempo do OneSignal
 
   const [mostrarFormulario, setMostrarFormulario] = useState(false);
 
@@ -82,12 +97,27 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   const [textoWpp, setTextoWpp] = useState('');
 
   const [agendaLembreteAlvo, setAgendaLembreteAlvo] = useState<Agendamento | null>(null);
+  const [menuAbertoId, setMenuAbertoId] = useState<string | null>(null);
 
   const lidarComTokenExpirado = () => {
     sessionStorage.removeItem('googleToken');
     toast.error("Sua sessão do Google Calendar expirou por segurança. Você será redirecionado para fazer login novamente.");
     signOut(auth); 
   };
+
+  // Solicita permissão de notificação nativa ao carregar o módulo
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  // Evento global para fechar menus suspensos de 3 pontinhos ao clicar fora
+  useEffect(() => {
+    const fecharMenus = () => setMenuAbertoId(null);
+    window.addEventListener('click', fecharMenus);
+    return () => window.removeEventListener('click', fecharMenus);
+  }, []);
 
   useEffect(() => {
     if (!perfil?.companyId) return;
@@ -133,6 +163,13 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
           
           if (dados.diasBloqueados) setDiasBloqueadosConfig(dados.diasBloqueados);
           if (dados.mensagemLembrete) setMensagemLembreteConfig(dados.mensagemLembrete);
+          
+          // Busca de tempo de lembrete do OneSignal de forma otimizada
+          if (dados.tempoLembrete) {
+            setTempoLembreteConfig(dados.tempoLembrete);
+          } else if (dados.configuracoesGlobais?.tempoLembrete) {
+            setTempoLembreteConfig(dados.configuracoesGlobais.tempoLembrete);
+          }
       }
     });
 
@@ -144,31 +181,43 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     };
   }, [perfil?.companyId]);
 
-
-
-// =========================================================
-  // VERIFICADOR AUTOMÁTICO DE ATENDIMENTOS CONCLUÍDOS
+  // =========================================================
+  // VERIFICADOR DE NOTIFICAÇÕES (30 MIN ANTES) E CONCLUSÃO AUTOMÁTICA
   // =========================================================
   useEffect(() => {
-    // Se não houver agendamentos, não precisa rodar
     if (agendamentos.length === 0) return;
 
-    const verificarEAtualizarStatus = () => {
+    const verificarNotificacoesEStatus = () => {
       const agora = new Date();
 
       agendamentos.forEach(async (ag) => {
-        // Só verifica os que ainda estão pendentes
         if (ag.status === 'pendente') {
-          // Converte a dataHora (ex: "2023-10-25T14:30") para um objeto Date real
           const inicio = new Date(`${ag.dataHora}:00`);
-          
-          // Calcula o fim somando a duração em milissegundos (minutos * 60000)
           const fim = new Date(inicio.getTime() + (ag.duracaoMinutos * 60000));
+          
+          const minutosAteInicio = (inicio.getTime() - agora.getTime()) / 60000;
 
-          // Se o momento atual ultrapassou o horário de término previsto
-          if (agora >= fim) {
+          // 1. NOTIFICAÇÃO 30 MINUTOS ANTES DO AGENDAMENTO
+          if (minutosAteInicio <= 30 && minutosAteInicio > 0 && !ag.notificado30Min) {
+            if ('Notification' in window && Notification.permission === 'granted') {
+              new Notification('⏰ Lembrete de Agendamento!', {
+                body: `Seu agendamento com ${ag.clienteNome} (${ag.servicoNome}) é às ${ag.dataHora.split('T')[1]} (em ~${Math.round(minutosAteInicio)} min).`,
+                tag: ag.id
+              });
+            }
+
             try {
-              // Atualiza silenciosamente no banco de dados
+              await updateDoc(doc(db, 'agendamentos', ag.id), { 
+                notificado30Min: true 
+              });
+            } catch (err) {
+              console.error("Erro ao registrar notificação enviada:", err);
+            }
+          }
+
+          // 2. CONCLUSÃO AUTOMÁTICA
+          if (!ag.bloquearConclusaoAuto && agora >= fim) {
+            try {
               await updateDoc(doc(db, 'agendamentos', ag.id), { 
                 status: 'concluido' 
               });
@@ -181,16 +230,11 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
       });
     };
 
-    // Roda a verificação imediatamente ao carregar...
-    verificarEAtualizarStatus();
-
-    // ... e depois continua checando a cada 1 minuto (60.000 ms)
-    const intervalo = setInterval(verificarEAtualizarStatus, 60000);
+    verificarNotificacoesEStatus();
+    const intervalo = setInterval(verificarNotificacoesEStatus, 30000); 
 
     return () => clearInterval(intervalo);
   }, [agendamentos]);
-
-
 
   useEffect(() => {
     const tokenGoogle = sessionStorage.getItem('googleToken');
@@ -275,6 +319,54 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     };
   }, [agendamentos, perfil?.companyId, funcionarios]);
 
+  // =========================================================
+  // ONESIGNAL: AGENDAR PUSH NOTIFICATION
+  // =========================================================
+  const agendarNotificacaoPush = async (dataHorarioAtendimento: Date, tempoLembreteMinutos: number, nomeCliente: string) => {
+    if (!perfil?.email) {
+      console.warn("Nenhum e-mail de perfil encontrado para agendar a notificação.");
+      return;
+    }
+    
+    const dataNotificacao = new Date(dataHorarioAtendimento.getTime() - (tempoLembreteMinutos * 60000));
+    
+    if (dataNotificacao.getTime() < new Date().getTime()) {
+      console.log("Horário de lembrete já passou, notificação não será agendada.");
+      return;
+    }
+
+    const sendAfterFormatado = formatarDataOneSignal(dataNotificacao);
+
+    // DADOS DO ONESIGNAL (Substitua pela sua REST API KEY se necessário)
+    const ONESIGNAL_APP_ID = "a05664b1-082c-49e7-8348-56f901293513";
+    const ONESIGNAL_REST_API_KEY = "os_v2_app_ublgjmiifre6pa2ik34qckjvcnqid2ebfajulu4tyzbsfrh3ufcyazeu4yleaqx4chw4pkntjansh6amhgflaoorw4f2yiboe2cn6ji"; 
+
+    const body = {
+      app_id: ONESIGNAL_APP_ID,
+      include_aliases: { external_id: [perfil?.email] },
+      headings: { en: "Lembrete de Atendimento", pt: "Lembrete de Atendimento" },
+      contents: { 
+        en: `Você tem um atendimento com ${nomeCliente} em ${tempoLembreteMinutos} minutos!`,
+        pt: `Você tem um atendimento com ${nomeCliente} em ${tempoLembreteMinutos} minutos!`
+      },
+      send_after: sendAfterFormatado 
+    };
+
+    try {
+      await fetch("https://onesignal.com/api/v1/notifications", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Basic ${ONESIGNAL_REST_API_KEY}`
+        },
+        body: JSON.stringify(body)
+      });
+      console.log("Push agendado no OneSignal para:", sendAfterFormatado);
+    } catch (error) {
+      console.error("Erro ao agendar Push no OneSignal", error);
+    }
+  };
+
   const obterHorariosDisponiveis = () => {
     const todosHorarios = gerarHorarios();
     if (!dataForm || !configHorarios) return todosHorarios;
@@ -315,15 +407,14 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
       if (eHoje && inicioDesejado <= minutosAtuais) return false;
 
-      // ATUALIZAÇÃO CORRIGIDA: Regra ultra-robusta independente da presença estrita do booleano "ativo"
       const temConfigDeAlmoco = almocoConfig && almocoConfig.inicio && almocoConfig.fim;
       const almocoNaoFoiDesativado = almocoConfig?.ativo !== false && String(almocoConfig?.ativo) !== 'false';
       
       if (temConfigDeAlmoco && almocoNaoFoiDesativado) {
           const [hA, mA] = String(almocoConfig.inicio).split(':').map(Number);
-          const iniAlmoco = (hA * 60 + mA) + 1; // +1 min invisível
+          const iniAlmoco = (hA * 60 + mA) + 1;
           const [hAF, mAF] = String(almocoConfig.fim).split(':').map(Number);
-          const fimAlmoco = (hAF * 60 + mAF) - 1; // -1 min invisível
+          const fimAlmoco = (hAF * 60 + mAF) - 1;
           
           if (inicioDesejado < fimAlmoco && fimDesejado > iniAlmoco) return false;
       }
@@ -434,7 +525,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
         if (eHoje && minutosAtual <= minutosAtuais) return false;
 
-        // ATUALIZAÇÃO CORRIGIDA PARA O GERADOR WPP
         const temConfigDeAlmoco = almocoConfig && almocoConfig.inicio && almocoConfig.fim;
         const almocoNaoFoiDesativado = almocoConfig?.ativo !== false && String(almocoConfig?.ativo) !== 'false';
 
@@ -528,6 +618,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
     const funcEscolhido = funcionarios.find(f => f.email === emailFuncionarioSelecionado);
     const dataHoraIso = `${dataForm}T${horaForm}`;
+    const dataHoraAtendimento = new Date(`${dataHoraIso}:00`); // Usado pro OneSignal
 
     const tokenGoogle = sessionStorage.getItem('googleToken');
     const start = new Date(`${dataHoraIso}:00`);
@@ -578,7 +669,12 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
             preco: totalPreco, duracaoMinutos: totalDuracao,
             googleSyncPending: googleSyncPending
         });
+        
         toast.success("Agendamento atualizado com sucesso!");
+        
+        // AGENDAR NOTIFICAÇÃO ONESIGNAL (ATUALIZAÇÃO)
+        await agendarNotificacaoPush(dataHoraAtendimento, tempoLembreteConfig, cliente);
+        
       } catch (err) {
         toast.error("Erro ao salvar no banco local.");
       }
@@ -622,7 +718,12 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
             googleEventId: googleEventIdSalvar,
             googleSyncPending: googleSyncPending
         });
+        
         toast.success("Agendamento efetuado!");
+        
+        // AGENDAR NOTIFICAÇÃO ONESIGNAL (NOVO AGENDAMENTO)
+        await agendarNotificacaoPush(dataHoraAtendimento, tempoLembreteConfig, cliente);
+        
       } catch (err) {
         toast.error("Erro ao salvar o agendamento localmente.");
       }
@@ -654,9 +755,8 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   }
 
   async function excluirAgendamento(agenda: Agendamento) {
-    const toastId = toast.loading("Excluindo agendamento...");
-
     if (window.confirm("Tem certeza? O agendamento será excluído do sistema.")) {
+      const toastId = toast.loading("Excluindo agendamento...");
       try {
         await deleteDoc(doc(db, 'agendamentos', agenda.id));
         toast.dismiss(toastId);
@@ -678,8 +778,10 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
             armazenarExclusaoPendente(agenda.googleEventId);
           }
         }
+        toast.success("Agendamento removido.");
       } catch(e) {
-        console.error("Erro ao excluir", e);
+        toast.dismiss(toastId);
+        toast.error("Erro ao excluir agendamento.");
       }
     }
   }
@@ -742,6 +844,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
       await updateDoc(doc(db, 'agendamentos', agenda.id), { 
           status: 'concluido',
+          bloquearConclusaoAuto: false, 
           transacaoCaixaId: transacaoId 
       });
 
@@ -752,15 +855,14 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     }
   }
 
-  async function reverterConclusao(e: React.MouseEvent | React.TouchEvent, agenda: Agendamento) {
-      e.preventDefault(); 
-      
+  async function reverterConclusao(agenda: Agendamento) {
       const confirmar = window.confirm(`Deseja REVERTER o serviço de ${agenda.clienteNome}? O valor sairá do Caixa e os materiais voltarão ao Estoque.`);
       if (!confirmar) return;
 
       try {
           await updateDoc(doc(db, 'agendamentos', agenda.id), { 
               status: 'pendente',
+              bloquearConclusaoAuto: true, 
               transacaoCaixaId: null 
           });
 
@@ -802,7 +904,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
             }
           }
 
-          toast.success("Agendamento revertido com sucesso!");
+          toast.success("Agendamento revertido para pendente! Ele não será concluído automaticamente.");
 
       } catch (error) {
           toast.error("Erro ao tentar reverter o agendamento.");
@@ -849,11 +951,25 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     boxSizing: 'border-box' as const
   };
 
+  const itemMenuEstilo = {
+    padding: '10px 15px',
+    background: 'transparent',
+    border: 'none',
+    borderBottom: '1px solid var(--borda)',
+    color: 'var(--text-principal)',
+    textAlign: 'left' as const,
+    cursor: 'pointer',
+    fontSize: '14px',
+    fontWeight: 'bold' as const,
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    width: '100%'
+  };
+
   return (
-    
     <div style={{ position: 'relative', background: 'var(--bg-card)', padding: '20px', borderRadius: '8px', border: '1px solid var(--borda)', color: 'var(--text-principal)', transition: 'all 0.3s', minHeight: '80vh' }}>
-    <Toaster richColors position="top-center" />
-    
+      <Toaster richColors position="top-center" />
       
       {mostrarFormulario ? (
         <div style={{ animation: 'fadeIn 0.3s ease-in-out' }}>
@@ -1040,11 +1156,12 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingBottom: '80px' }}>
               {agendamentosDoDia.map(agenda => {
                 return (
-                  <div key={agenda.id} style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', padding: '15px', border: '1px solid var(--borda)', borderRadius: '8px', borderLeft: agenda.status === 'concluido' ? '5px solid #2ecc71' : '5px solid #f39c12', backgroundColor: 'var(--bg-card-item)' }}>
+                  <div key={agenda.id} style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', padding: '15px', border: '1px solid var(--borda)', borderRadius: '8px', borderLeft: agenda.status === 'concluido' ? '5px solid #2ecc71' : '5px solid #f39c12', backgroundColor: 'var(--bg-card-item)', position: 'relative' }}>
                     <div>
                       <h4 style={{ margin: '0 0 5px 0', color: 'var(--text-principal)', fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                         {agenda.dataHora.split('T')[1]} - {agenda.clienteNome}
                         {agenda.googleSyncPending && <span style={{ fontSize: '12px', color: '#e67e22', fontStyle: 'italic', fontWeight: 'normal' }}>(Aguardando...)</span>}
+                        {agenda.status === 'concluido' && <span style={{ fontSize: '12px', color: '#27ae60', fontWeight: 'bold' }}>(Finalizado)</span>}
                       </h4>
                       <span style={{ fontSize: '14px', color: 'var(--text-secundario)', display: 'block', marginBottom: '3px' }}>
                         {agenda.servicoNome} | <strong>R$ {agenda.preco.toFixed(2)}</strong>
@@ -1054,37 +1171,95 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
                       </span>
                     </div>
 
-                    <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
-                      {agenda.status === 'pendente' ? (
-                        <>
-                          <button onClick={() => setAgendaLembreteAlvo(agenda)} style={{ padding: '8px 12px', background: '#3498db', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>💬 Avisar</button>
-                          <button onClick={() => marcarComoConcluido(agenda)} style={{ padding: '8px 12px', background: '#2ecc71', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>✅ Concluir</button>
-                          <button onClick={() => prepararEdicao(agenda)} style={{ padding: '8px 12px', background: '#f39c12', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>✏️</button>
-                          <button onClick={() => excluirAgendamento(agenda)} style={{ padding: '8px 12px', background: '#e74c3c', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>🗑️</button>
-                        </>
-                      ) : (
-                        <span
-                          onContextMenu={(e) => reverterConclusao(e, agenda)}
+                    {/* MENU 3 PONTINHOS UNIFICADO */}
+                    <div style={{ position: 'relative', marginTop: '10px' }}>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setMenuAbertoId(menuAbertoId === agenda.id ? null : agenda.id);
+                        }}
+                        style={{
+                          background: 'transparent',
+                          border: '1px solid var(--borda)',
+                          borderRadius: '6px',
+                          color: 'var(--text-principal)',
+                          padding: '6px 12px',
+                          fontSize: '20px',
+                          cursor: 'pointer',
+                          fontWeight: 'bold',
+                          lineHeight: '1'
+                        }}
+                        title="Opções do agendamento"
+                      >
+                        ⋮
+                      </button>
+
+                      {menuAbertoId === agenda.id && (
+                        <div 
+                          onClick={(e) => e.stopPropagation()}
                           style={{
-                            color: '#27ae60',
-                            fontWeight: 'bold',
-                            cursor: 'pointer',
-                            userSelect: 'none',
-                            WebkitUserSelect: 'none',
-                            WebkitTouchCallout: 'none',
-                            MozUserSelect: 'none',
-                            msUserSelect: 'none',
-                            padding: '8px 12px',
-                            backgroundColor: 'rgba(46, 204, 113, 0.1)',
-                            borderRadius: '6px',
-                            display: 'inline-block'
+                            position: 'absolute',
+                            right: 0,
+                            top: '100%',
+                            marginTop: '5px',
+                            backgroundColor: 'var(--bg-card)',
+                            border: '1px solid var(--borda)',
+                            borderRadius: '8px',
+                            boxShadow: '0 4px 15px rgba(0,0,0,0.3)',
+                            zIndex: 100,
+                            minWidth: '170px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            overflow: 'hidden'
                           }}
-                          title="Toque e segure (ou clique direito) para Reverter"
                         >
-                          ✓ Finalizado
-                        </span>
+                          {agenda.status === 'pendente' ? (
+                            <>
+                              <button 
+                                onClick={() => { setMenuAbertoId(null); setAgendaLembreteAlvo(agenda); }}
+                                style={itemMenuEstilo}
+                              >
+                                💬 Avisar
+                              </button>
+                              <button 
+                                onClick={() => { setMenuAbertoId(null); marcarComoConcluido(agenda); }}
+                                style={itemMenuEstilo}
+                              >
+                                ✅ Concluir
+                              </button>
+                              <button 
+                                onClick={() => { setMenuAbertoId(null); prepararEdicao(agenda); }}
+                                style={itemMenuEstilo}
+                              >
+                                ✏️ Editar
+                              </button>
+                              <button 
+                                onClick={() => { setMenuAbertoId(null); excluirAgendamento(agenda); }}
+                                style={{ ...itemMenuEstilo, color: '#e74c3c', borderBottom: 'none' }}
+                              >
+                                🗑️ Excluir
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button 
+                                onClick={() => { setMenuAbertoId(null); reverterConclusao(agenda); }}
+                                style={itemMenuEstilo}
+                              >
+                                🔄 Reverter
+                              </button>
+                              <button 
+                                onClick={() => { setMenuAbertoId(null); excluirAgendamento(agenda); }}
+                                style={{ ...itemMenuEstilo, color: '#e74c3c', borderBottom: 'none' }}
+                              >
+                                🗑️ Excluir
+                              </button>
+                            </>
+                          )}
+                        </div>
                       )}
                     </div>
+
                   </div>
                 );
               })}

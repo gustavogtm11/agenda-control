@@ -1,9 +1,6 @@
-// src/pages/Painel.tsx
-
 import { useState, useEffect } from 'react';
-import { auth, db } from '../config/firebase'; 
+import { auth } from '../config/firebase'; 
 import { signOut } from 'firebase/auth';
-import { collection, query, where, onSnapshot, doc } from 'firebase/firestore'; 
 import { useToast } from '../App';
 
 import { ModuloAgenda } from '../components/ModuloAgenda';
@@ -16,11 +13,13 @@ import { ModuloConfiguracoes } from '../components/ModuloConfiguracoes';
 import { ModuloAutomacaoWhatsApp } from '../components/ModuloAutomacaoWhatsApp';
 
 interface PainelProps {
-  perfil: { nome: string; companyId: string; role: string; } | null;
+  perfil: { id?: string; nome: string; companyId: string; role: string; } | null;
 }
 
+type AbasType = 'agenda' | 'caixa' | 'estoque' | 'servicos' | 'funcionarios' | 'admin' | 'config' | 'automacao';
+
 export function Painel({ perfil }: PainelProps) {
-  const [abaAtiva, setAbaAtiva] = useState<'agenda' | 'caixa' | 'estoque' | 'servicos' | 'funcionarios' | 'admin' | 'config' | 'automacao'>('agenda');
+  const [abaAtiva, setAbaAtiva] = useState<AbasType>('agenda');
   
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [menuExpandido, setMenuExpandido] = useState(() => {
@@ -30,136 +29,9 @@ export function Painel({ perfil }: PainelProps) {
 
   const { showToast } = useToast();
 
-  // ESTADOS DO MOTOR DE NOTIFICAÇÕES (Background) e BADGES
-  const [configuracoesGlobais, setConfiguracoesGlobais] = useState<any>(null);
-  const [agendamentosHoje, setAgendamentosHoje] = useState<any[]>([]);
-  const [contasVencidas, setContasVencidas] = useState<any[]>([]); 
-
-  // 1. CARREGA AS CONFIGURAÇÕES, AGENDA DO DIA E CONTAS PARA O MOTOR DE NOTIFICAÇÕES
-  useEffect(() => {
-    if (!perfil?.companyId || perfil?.role === 'super_admin') return;
-
-    // Escuta a configuração
-    const unsubConfig = onSnapshot(doc(db, 'empresas', perfil.companyId), (docSnap) => {
-      if (docSnap.exists()) {
-        setConfiguracoesGlobais(docSnap.data());
-      }
-    });
-
-    const hoje = new Date();
-    const tzoffset = hoje.getTimezoneOffset() * 60000;
-    const dataStr = new Date(hoje.getTime() - tzoffset).toISOString().split('T')[0];
-
-    // Escuta a agenda do dia atual
-    const qAgenda = query(
-      collection(db, 'agendamentos'),
-      where('companyId', '==', perfil.companyId),
-      where('status', '==', 'pendente')
-    );
-
-    const unsubAgendamentos = onSnapshot(qAgenda, (snap) => {
-      const lista: any[] = [];
-      snap.forEach(d => {
-         const dados = d.data();
-         if (dados.dataHora && dados.dataHora.startsWith(dataStr)) {
-            lista.push({ id: d.id, ...dados });
-         }
-      });
-      setAgendamentosHoje(lista);
-    });
-
-    // Escuta as contas a pagar (Dívidas)
-    const qContas = query(
-      collection(db, 'contas_pagar'),
-      where('companyId', '==', perfil.companyId),
-      where('status', '==', 'pendente')
-    );
-
-    const unsubContas = onSnapshot(qContas, (snap) => {
-      const listaContas: any[] = [];
-      snap.forEach(d => {
-        const conta = d.data();
-        if (conta.vencimento <= dataStr) {
-          listaContas.push({ id: d.id, ...conta });
-        }
-      });
-      setContasVencidas(listaContas);
-    });
-
-    return () => { unsubConfig(); unsubAgendamentos(); unsubContas(); };
-  }, [perfil?.companyId, perfil?.role]);
-
-  // 2. O RELÓGIO (MOTOR DE NOTIFICAÇÕES)
-  useEffect(() => {
-    // ALTERAÇÃO DE SEGURANÇA EXTREMA PARA O IOS: Validação segura da API de Notifications
-    const hasNotificationAPI = typeof window !== 'undefined' && 'Notification' in window;
-    
-    if (!configuracoesGlobais || !hasNotificationAPI) return;
-    
-    // Evita ler o .permission caso a API exista mas não permita a leitura em alguns webviews do iOS
-    try {
-      if (window.Notification.permission !== 'granted') return;
-    } catch (e) {
-      return;
-    }
-
-    const intervalo = setInterval(() => {
-        const agora = new Date();
-        const hora = agora.getHours().toString().padStart(2, '0');
-        const minuto = agora.getMinutes().toString().padStart(2, '0');
-        const horaAtual = `${hora}:${minuto}`;
-        const dataHoje = agora.toISOString().split('T')[0]; 
-
-        // NOTIFICAÇÃO 1: CAIXA
-        if (configuracoesGlobais.notificacaoCaixaAtiva && configuracoesGlobais.horarioFechamentoCaixa === horaAtual) {
-           const chaveCaixa = `@NotificacaoCaixa_${dataHoje}`;
-           if (!localStorage.getItem(chaveCaixa)) {
-              new Notification("💰 Fechamento de Caixa", { body: "Chegou a hora de conferir e fechar o caixa do dia!" });
-              localStorage.setItem(chaveCaixa, 'true');
-           }
-        }
-
-        // NOTIFICAÇÃO 2: PRÓXIMO ATENDIMENTO DA AGENDA
-        if (configuracoesGlobais.notificacaoAgendaAtiva && configuracoesGlobais.minutosAvisoPrevioAgenda) {
-           const minutosAviso = Number(configuracoesGlobais.minutosAvisoPrevioAgenda);
-
-           agendamentosHoje.forEach(ag => {
-              const horaAgendamento = new Date(ag.dataHora);
-              const diferencaMs = horaAgendamento.getTime() - agora.getTime();
-              const diffMinutos = Math.round(diferencaMs / 60000); 
-
-              if (diffMinutos === minutosAviso || diffMinutos === (minutosAviso - 1)) {
-                 const chaveAgenda = `@NotificacaoAgenda_${ag.id}`;
-                 if (!localStorage.getItem(chaveAgenda)) {
-                    new Notification(`Próximo Atendimento: ${ag.clienteNome}`, {
-                       body: `Serviço: ${ag.servicoNome}\nProfissional: ${ag.funcionarioEmail || 'Não Atribuído'}\nHorário: ${ag.dataHora.split('T')[1]}`
-                    });
-                    localStorage.setItem(chaveAgenda, 'true');
-                 }
-              }
-           });
-        }
-
-        // NOTIFICAÇÃO 3: DÍVIDAS / CONTAS A PAGAR
-        if (configuracoesGlobais.notificacaoDividasAtiva && configuracoesGlobais.horariosLembreteDivida && contasVencidas.length > 0) {
-          const horariosLembrete: string[] = configuracoesGlobais.horariosLembreteDivida;
-          
-          if (horariosLembrete.includes(horaAtual)) {
-            const chaveDivida = `@NotificacaoDivida_${dataHoje}_${horaAtual}`;
-            if (!localStorage.getItem(chaveDivida)) {
-              new Notification("🔴 Lembrete de Contas a Pagar", {
-                 body: `Você possui ${contasVencidas.length} conta(s) vencendo hoje ou atrasadas. Verifique o seu Caixa!`
-              });
-              localStorage.setItem(chaveDivida, 'true');
-            }
-          }
-        }
-
-    }, 30000); 
-
-    return () => clearInterval(intervalo);
-  }, [configuracoesGlobais, agendamentosHoje, contasVencidas]);
-
+  // =========================================================================
+  // AJUSTES DE LAYOUT E RESPONSIVIDADE
+  // =========================================================================
   useEffect(() => {
     const rootElement = document.getElementById('root');
     if (rootElement) {
@@ -233,7 +105,7 @@ export function Painel({ perfil }: PainelProps) {
     position: 'relative' as const
   });
 
-  const mudarAba = (aba: any) => {
+  const mudarAba = (aba: AbasType) => {
     setAbaAtiva(aba);
     if (isMobile) setMenuExpandido(false);
   };
@@ -241,7 +113,6 @@ export function Painel({ perfil }: PainelProps) {
   return (
     <div style={{ 
       display: 'flex', 
-      /* CORREÇÃO PARA IOS SAFARI: position fixed ao invés de height 100vh para impedir a barra de endereço de quebrar o layout */
       position: 'fixed',
       top: 0,
       bottom: 0,
@@ -255,7 +126,7 @@ export function Painel({ perfil }: PainelProps) {
       boxSizing: 'border-box' 
     }}>
       
-      {/* OVERLAY MOBILE: Fundo escurecido ao abrir o menu em telas pequenas */}
+      {/* OVERLAY MOBILE */}
       {isMobile && menuExpandido && (
         <div 
           onClick={() => setMenuExpandido(false)} 
@@ -276,11 +147,11 @@ export function Painel({ perfil }: PainelProps) {
         position: isMobile ? 'fixed' : 'relative',
         top: isMobile ? 0 : undefined,
         left: isMobile ? 0 : undefined,
-        height: '100%', /* CORREÇÃO: Pega a altura do pai (fixed) */
+        height: '100%',
         zIndex: 50, 
         overflowY: 'auto',
         overflowX: 'hidden',
-        WebkitOverflowScrolling: 'touch', /* CORREÇÃO: Garante scroll suave em dispositivos Apple */
+        WebkitOverflowScrolling: 'touch',
         boxSizing: 'border-box',
         boxShadow: isMobile ? '4px 0 15px rgba(0,0,0,0.3)' : 'none'
       }}>
@@ -321,9 +192,6 @@ export function Painel({ perfil }: PainelProps) {
                     onMouseOut={(e) => abaAtiva !== 'caixa' && (e.currentTarget.style.backgroundColor = 'transparent')}
                   >
                     <span>💰</span> {menuExpandido && <span style={{ animation: 'fadeIn 0.2s ease' }}>Caixa</span>}
-                    {contasVencidas.length > 0 && abaAtiva !== 'caixa' && (
-                      <span style={{ position: 'absolute', top: '8px', right: '8px', width: '10px', height: '10px', backgroundColor: '#e74c3c', borderRadius: '50%', boxShadow: '0 0 5px rgba(231, 76, 60, 0.8)' }} title="Contas Pendentes!" />
-                    )}
                   </button>
                   <button 
                     style={estiloBotaoMenu('estoque')} 
@@ -349,14 +217,6 @@ export function Painel({ perfil }: PainelProps) {
                   >
                     <span>👥</span> {menuExpandido && <span style={{ animation: 'fadeIn 0.2s ease' }}>Equipe</span>}
                   </button>
-                  {/* <button 
-                    style={estiloBotaoMenu('automacao')} 
-                    onClick={() => mudarAba('automacao')}
-                    onMouseOver={(e) => abaAtiva !== 'automacao' && (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.05)')}
-                    onMouseOut={(e) => abaAtiva !== 'automacao' && (e.currentTarget.style.backgroundColor = 'transparent')}
-                  >
-                    <span>🤖</span> {menuExpandido && <span style={{ animation: 'fadeIn 0.2s ease' }}>Automação (Bot)</span>}
-                  </button> */}
                   <button 
                     style={estiloBotaoMenu('config')} 
                     onClick={() => mudarAba('config')}
@@ -402,8 +262,8 @@ export function Painel({ perfil }: PainelProps) {
         padding: isMobile ? '15px' : '30px', 
         overflowY: 'auto', 
         overflowX: 'hidden', 
-        height: '100%', /* CORREÇÃO: Herda a altura do parent, removendo o bug do 100vh no iOS */
-        WebkitOverflowScrolling: 'touch', /* CORREÇÃO: Garante que a área principal role suavemente no iOS */
+        height: '100%',
+        WebkitOverflowScrolling: 'touch',
         boxSizing: 'border-box',
         backgroundColor: '#f5f6fa',
         position: 'relative'
@@ -426,7 +286,7 @@ export function Painel({ perfil }: PainelProps) {
           </button>
         )}
 
-        <div style={{ marginTop: isMobile && !menuExpandido ? '60px' : '0', width:  '100%', animation: 'fadeInContent 0.4s ease-out' }}>
+        <div style={{ marginTop: isMobile && !menuExpandido ? '60px' : '0', width: '100%', animation: 'fadeInContent 0.4s ease-out' }}>
           {abaAtiva === 'agenda' && perfil?.role !== 'super_admin' && <ModuloAgenda perfil={perfil} />}
           {abaAtiva === 'caixa' && perfil?.role === 'chefe' && <ModuloCaixa perfil={perfil} />}
           {abaAtiva === 'estoque' && perfil?.role === 'chefe' && <ModuloEstoque perfil={perfil} />}

@@ -3,6 +3,7 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 import {initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore"; 
+import { getMessaging } from "firebase/messaging";
 
 // Cole aqui o objeto que você copiou lá do site do Firebase!
 const firebaseConfig = {
@@ -29,3 +30,4 @@ export const db = initializeFirestore(app, {
 
 export const provedorGoogle = new GoogleAuthProvider();
 provedorGoogle.addScope('https://www.googleapis.com/auth/calendar.events');
+export const messaging = getMessaging(app); // ADICIONE ISSO

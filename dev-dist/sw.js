@@ -81,12 +81,12 @@ define(['./workbox-aeb6ecaf'], (function (workbox) { 'use strict';
     "revision": "3ca0b8505b4bec776b69afdba2768812"
   }, {
     "url": "index.html",
-    "revision": "0.b2la6isu7q8"
+    "revision": "0.hi4dp0jdh0g"
   }], {});
   workbox.cleanupOutdatedCaches();
   workbox.registerRoute(new workbox.NavigationRoute(workbox.createHandlerBoundToURL("index.html"), {
     allowlist: [/^\/$/],
-    denylist: [/^\/_/, /firestore\.googleapis\.com/]
+    denylist: [/^\/_/, /firestore\.googleapis\.com/, /firebase-messaging-sw\.js$/]
   }));
   workbox.registerRoute(/^https:\/\/firestore\.googleapis\.com\/.*/i, new workbox.NetworkOnly({
     "cacheName": "firebase-firestore",

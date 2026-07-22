@@ -1,17 +1,23 @@
-// src/App.tsx
-
 import React, { useEffect, useState, createContext, useContext } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { auth, db } from './config/firebase';
+import { auth, db } from './config/firebase'; 
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore'; 
 
-// IMPORTAÇÃO NOVA PARA O PWA
+// IMPORTAÇÃO PARA O PWA
 import { useRegisterSW } from 'virtual:pwa-register/react';
 
 import { Login } from './pages/Login';
 import { Painel } from './pages/Painel';
 import { AgendamentoPublico } from './pages/AgendamentoPublico';
+
+// Tipagem global para o OneSignal no TypeScript
+declare global {
+  interface Window {
+    OneSignalDeferred?: any[];
+    OneSignal?: any;
+  }
+}
 
 // ============================================================================
 // TOAST CONTEXT PARA SUBSTITUIR ALERT() GLOBALMENTE
@@ -138,7 +144,7 @@ export default function App() {
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [showPwaPrompt, setShowPwaPrompt] = useState(false);
 
-  // 1. GERENCIAMENTO OFICIAL DO PWA (Substitui o registo manual que causava o erro)
+  // 1. GERENCIAMENTO OFICIAL DO PWA
   const {
     needRefresh: [needRefresh, setNeedRefresh],
     updateServiceWorker,
@@ -148,7 +154,6 @@ export default function App() {
     },
   });
 
-  // Mostra o alerta para recarregar se houver atualização (Substitui o evento updatefound)
   useEffect(() => {
     if (needRefresh) {
       if (window.confirm("Uma nova versão do sistema acabou de ser publicada! O aplicativo será recarregado para atualizar.")) {
@@ -160,7 +165,7 @@ export default function App() {
   }, [needRefresh, updateServiceWorker, setNeedRefresh]);
 
   useEffect(() => {
-    // 2. CAPTURAR EVENTO DE INSTALAÇÃO DO APP NATIVO (Mantém-se igual)
+    // 2. CAPTURAR EVENTO DE INSTALAÇÃO DO APP NATIVO
     const handleBeforeInstallPrompt = (e: any) => {
       e.preventDefault();
       setInstallPrompt(e);
@@ -175,11 +180,20 @@ export default function App() {
     };
   }, []);
 
+  // 3. GERENCIAMENTO DE AUTENTICAÇÃO E IDENTIFICAÇÃO NO ONESIGNAL
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         setUsuario(user);
         
+        // Associa o e-mail do usuário logado ao OneSignal para envios direcionados
+        if (user.email) {
+          window.OneSignalDeferred = window.OneSignalDeferred || [];
+          window.OneSignalDeferred.push(async (OneSignal: any) => {
+            await OneSignal.login(user.email!);
+          });
+        }
+
         if (!perfil) setCarregandoPerfil(true);
 
         try {
@@ -211,6 +225,12 @@ export default function App() {
           setAuthLoading(false);
         }
       } else {
+        // Desconecta o usuário do OneSignal ao fazer logout
+        window.OneSignalDeferred = window.OneSignalDeferred || [];
+        window.OneSignalDeferred.push(async (OneSignal: any) => {
+          await OneSignal.logout();
+        });
+
         setUsuario(null);
         setPerfil(null);
         localStorage.removeItem('@App:perfil');
@@ -220,7 +240,7 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [perfil]);
+  }, []);
 
   const dismissPwaPrompt = () => {
     setShowPwaPrompt(false);
