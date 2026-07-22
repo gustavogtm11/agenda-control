@@ -8,8 +8,8 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       
-      // 1. REGISTRA O ARQUIVO COMO UM ATIVO ESTÁTICO DO PWA
-      includeAssets: ['favicon.png', 'pwa-512x512.png', 'firebase-messaging-sw.js'],
+      // 1. REGISTRA OS ARQUIVOS COMO ATIVOS ESTÁTICOS DO PWA (Incluído o do OneSignal)
+      includeAssets: ['favicon.png', 'pwa-512x512.png', 'firebase-messaging-sw.js', 'OneSignalSDKWorker.js'],
       
       manifest: {
         name: 'Sistema de Agendamentos',
@@ -41,11 +41,12 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,png,svg,wasm}'],
         cleanupOutdatedCaches: true,
 
-        // 2. IMPEDE O WORKBOX DE ENTREGAR O index.html NO LUGAR DO SERVICE WORKER DO FIREBASE
+        // 2. IMPEDE O WORKBOX DE ENTREGAR O index.html NO LUGAR DOS SERVICE WORKERS
         navigateFallbackDenylist: [
           /^\/_/, 
           /firestore\.googleapis\.com/,
-          /firebase-messaging-sw\.js$/ // 👈 ADICIONADO AQUI!
+          /firebase-messaging-sw\.js$/,
+          /OneSignalSDKWorker\.js$/ // 👈 ADICIONADO PARA O ONESIGNAL!
         ],
         
         runtimeCaching: [

@@ -76,7 +76,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   const [almocoConfig, setAlmocoConfig] = useState<any>(null);
   const [diasBloqueadosConfig, setDiasBloqueadosConfig] = useState<string[]>([]);
   const [mensagemLembreteConfig, setMensagemLembreteConfig] = useState<string>('');
-  const [tempoLembreteConfig, setTempoLembreteConfig] = useState<number>(30); // Estado para o tempo do OneSignal
+  const [tempoLembreteConfig, setTempoLembreteConfig] = useState<number>(30); // Estado para o tempo do OneSignal/Notificação
 
   const [mostrarFormulario, setMostrarFormulario] = useState(false);
 
@@ -164,11 +164,10 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
           if (dados.diasBloqueados) setDiasBloqueadosConfig(dados.diasBloqueados);
           if (dados.mensagemLembrete) setMensagemLembreteConfig(dados.mensagemLembrete);
           
-          // Busca de tempo de lembrete do OneSignal de forma otimizada
-          if (dados.tempoLembrete) {
-            setTempoLembreteConfig(dados.tempoLembrete);
-          } else if (dados.configuracoesGlobais?.tempoLembrete) {
-            setTempoLembreteConfig(dados.configuracoesGlobais.tempoLembrete);
+          if (dados.minutosAvisoPrevioAgenda !== undefined) {
+            setTempoLembreteConfig(dados.minutosAvisoPrevioAgenda);
+          } else if (dados.configuracoesGlobais?.minutosAvisoPrevioAgenda !== undefined) {
+            setTempoLembreteConfig(dados.configuracoesGlobais.minutosAvisoPrevioAgenda);
           }
       }
     });
@@ -182,7 +181,138 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   }, [perfil?.companyId]);
 
   // =========================================================
-  // VERIFICADOR DE NOTIFICAÇÕES (30 MIN ANTES) E CONCLUSÃO AUTOMÁTICA
+  // FUNÇÕES DE CONCLUSÃO E REVERSÃO DE CAIXA (CENTRALIZADAS)
+  // =========================================================
+
+  async function efetuarConclusao(agenda: Agendamento, isAuto = false) {
+    if (agenda.status === 'concluido') return; // Segurança contra duplicação
+
+    try {
+      let transacaoId = '';
+      if (perfil?.companyId) {
+        // 1. Adicionar ao Caixa
+        const docRef = await addDoc(collection(db, 'financas'), {
+          descricao: `Serviço${isAuto ? ' (Automático)' : ''}: ${agenda.servicoNome} - Cliente: ${agenda.clienteNome}`,
+          valor: agenda.preco,
+          tipo: 'entrada',
+          data: new Date().toISOString(),
+          companyId: perfil.companyId,
+          origem: 'agenda'
+        });
+        transacaoId = docRef.id;
+        
+        // 2. Dar baixa no Estoque
+        const idsDosServicos = agenda.servicoIds && agenda.servicoIds.length > 0 ? agenda.servicoIds : [agenda.servicoId];
+        
+        for (const sId of idsDosServicos) {
+          const servicoRef = doc(db, 'servicos', sId);
+          const servicoSnap = await getDoc(servicoRef);
+          
+          if (servicoSnap.exists()) {
+            const dadosServico = servicoSnap.data();
+            const materiais = dadosServico.materiaisConsumidos || [];
+
+            for (const mat of materiais) {
+                const nomeMaterial = mat.nomeMaterial;
+                const qtdConsumida = parseFloat(mat.quantidade) || 0;
+
+                if (nomeMaterial && qtdConsumida > 0) {
+                    const qEstoque = query(
+                    collection(db, 'estoque'), 
+                    where('companyId', '==', perfil.companyId),
+                    where('nome', '==', nomeMaterial)
+                  );
+                  const querySnapshot = await getDocs(qEstoque);
+                  
+                  if (!querySnapshot.empty) {
+                      const itemEstoque = querySnapshot.docs[0];
+                      const qtdAtual = itemEstoque.data().quantidade;
+                      await updateDoc(doc(db, 'estoque', itemEstoque.id), {
+                          quantidade: Math.max(0, qtdAtual - qtdConsumida)
+                      });
+                  }
+                }
+            }
+          }
+        }
+      }
+
+      // 3. Atualizar Status do Agendamento
+      await updateDoc(doc(db, 'agendamentos', agenda.id), { 
+          status: 'concluido',
+          bloquearConclusaoAuto: false, 
+          transacaoCaixaId: transacaoId 
+      });
+
+      if (!isAuto) toast.success("Serviço concluído com sucesso! Caixa e Estoque atualizados.");
+
+    } catch (erro) {
+      if (!isAuto) toast.error("Houve um erro ao tentar concluir o serviço no caixa.");
+      console.error("Erro ao concluir serviço:", erro);
+    }
+  }
+
+  async function efetuarReversao(agenda: Agendamento, silent = false) {
+    if (agenda.status !== 'concluido') return;
+
+    try {
+        // 1. Remover do Caixa
+        if (agenda.transacaoCaixaId && perfil?.companyId) {
+            await deleteDoc(doc(db, 'financas', agenda.transacaoCaixaId));
+        }
+
+        // 2. Devolver ao Estoque
+        const idsDosServicos = agenda.servicoIds && agenda.servicoIds.length > 0 ? agenda.servicoIds : [agenda.servicoId];
+
+        for (const sId of idsDosServicos) {
+          const servicoRef = doc(db, 'servicos', sId);
+          const servicoSnap = await getDoc(servicoRef);
+          
+          if (servicoSnap.exists() && perfil?.companyId) {
+            const dadosServico = servicoSnap.data();
+            const materiais = dadosServico.materiaisConsumidos || [];
+
+            for (const mat of materiais) {
+                const nomeMaterial = mat.nomeMaterial;
+                const qtdConsumida = parseFloat(mat.quantidade) || 0;
+
+                if (nomeMaterial && qtdConsumida > 0) {
+                    const qEstoque = query(
+                        collection(db, 'estoque'), 
+                        where('companyId', '==', perfil.companyId),
+                        where('nome', '==', nomeMaterial)
+                    );
+                    const querySnapshot = await getDocs(qEstoque);
+                    
+                    if (!querySnapshot.empty) {
+                        const itemEstoque = querySnapshot.docs[0];
+                        const qtdAtual = itemEstoque.data().quantidade;
+                        await updateDoc(doc(db, 'estoque', itemEstoque.id), {
+                            quantidade: qtdAtual + qtdConsumida
+                        });
+                    }
+                }
+            }
+          }
+        }
+
+        // 3. Atualizar Status para Pendente
+        await updateDoc(doc(db, 'agendamentos', agenda.id), { 
+            status: 'pendente',
+            bloquearConclusaoAuto: true, 
+            transacaoCaixaId: null 
+        });
+
+        if (!silent) toast.success("Agendamento revertido! Valor subtraído do Caixa e materiais devolvidos ao estoque.");
+
+    } catch (error) {
+        if (!silent) toast.error("Erro ao tentar reverter o agendamento no caixa e estoque.");
+        console.error("Erro na reversão:", error);
+    }
+  }
+
+  // =========================================================
+  // VERIFICADOR DE NOTIFICAÇÕES PRÉVIAS E CONCLUSÃO AUTOMÁTICA
   // =========================================================
   useEffect(() => {
     if (agendamentos.length === 0) return;
@@ -197,8 +327,8 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
           
           const minutosAteInicio = (inicio.getTime() - agora.getTime()) / 60000;
 
-          // 1. NOTIFICAÇÃO 30 MINUTOS ANTES DO AGENDAMENTO
-          if (minutosAteInicio <= 30 && minutosAteInicio > 0 && !ag.notificado30Min) {
+          // 1. NOTIFICAÇÃO PRÉVIA AO AGENDAMENTO (Tempo dinâmico)
+          if (minutosAteInicio <= tempoLembreteConfig && minutosAteInicio > 0 && !ag.notificado30Min) {
             if ('Notification' in window && Notification.permission === 'granted') {
               new Notification('⏰ Lembrete de Agendamento!', {
                 body: `Seu agendamento com ${ag.clienteNome} (${ag.servicoNome}) é às ${ag.dataHora.split('T')[1]} (em ~${Math.round(minutosAteInicio)} min).`,
@@ -208,7 +338,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
             try {
               await updateDoc(doc(db, 'agendamentos', ag.id), { 
-                notificado30Min: true 
+                notificado30Min: true // Mantido o nome no banco para retrocompatibilidade
               });
             } catch (err) {
               console.error("Erro ao registrar notificação enviada:", err);
@@ -217,14 +347,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
           // 2. CONCLUSÃO AUTOMÁTICA
           if (!ag.bloquearConclusaoAuto && agora >= fim) {
-            try {
-              await updateDoc(doc(db, 'agendamentos', ag.id), { 
-                status: 'concluido' 
-              });
-              console.log(`Agendamento ${ag.id} concluído automaticamente.`);
-            } catch (erro) {
-              console.error("Erro ao concluir agendamento automaticamente:", erro);
-            }
+            await efetuarConclusao(ag, true);
           }
         }
       });
@@ -234,7 +357,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     const intervalo = setInterval(verificarNotificacoesEStatus, 30000); 
 
     return () => clearInterval(intervalo);
-  }, [agendamentos]);
+  }, [agendamentos, tempoLembreteConfig, perfil?.companyId]); 
 
   useEffect(() => {
     const tokenGoogle = sessionStorage.getItem('googleToken');
@@ -344,7 +467,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     const body = {
       app_id: ONESIGNAL_APP_ID,
       include_aliases: { external_id: [perfil?.email] },
-      target_channel: "push", // Adicionado para garantir o direcionamento na v16
+      target_channel: "push",
       headings: { en: "Lembrete de Atendimento", pt: "Lembrete de Atendimento" },
       contents: { 
         en: `Você tem um atendimento com ${nomeCliente} em ${tempoLembreteMinutos} minutos!`,
@@ -626,7 +749,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
     const funcEscolhido = funcionarios.find(f => f.email === emailFuncionarioSelecionado);
     const dataHoraIso = `${dataForm}T${horaForm}`;
-    const dataHoraAtendimento = new Date(`${dataHoraIso}:00`); // Usado pro OneSignal
+    const dataHoraAtendimento = new Date(`${dataHoraIso}:00`);
 
     const tokenGoogle = sessionStorage.getItem('googleToken');
     const start = new Date(`${dataHoraIso}:00`);
@@ -680,7 +803,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
         
         toast.success("Agendamento atualizado com sucesso!");
         
-        // AGENDAR NOTIFICAÇÃO ONESIGNAL (ATUALIZAÇÃO)
         await agendarNotificacaoPush(dataHoraAtendimento, tempoLembreteConfig, cliente);
         
       } catch (err) {
@@ -729,7 +851,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
         
         toast.success("Agendamento efetuado!");
         
-        // AGENDAR NOTIFICAÇÃO ONESIGNAL (NOVO AGENDAMENTO)
         await agendarNotificacaoPush(dataHoraAtendimento, tempoLembreteConfig, cliente);
         
       } catch (err) {
@@ -766,6 +887,12 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     if (window.confirm("Tem certeza? O agendamento será excluído do sistema.")) {
       const toastId = toast.loading("Excluindo agendamento...");
       try {
+        
+        // Se estava concluído, primeiro reverte do caixa e do estoque silenciosamente.
+        if (agenda.status === 'concluido') {
+            await efetuarReversao(agenda, true);
+        }
+
         await deleteDoc(doc(db, 'agendamentos', agenda.id));
         toast.dismiss(toastId);
         
@@ -803,120 +930,13 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   }
 
   async function marcarComoConcluido(agenda: Agendamento) {
-    try {
-      let transacaoId = '';
-      if (perfil?.companyId) {
-        transacaoId = (await addDoc(collection(db, 'financas'), {
-          descricao: `Serviço: ${agenda.servicoNome} - Cliente: ${agenda.clienteNome}`,
-          valor: agenda.preco,
-          tipo: 'entrada',
-          data: new Date().toISOString(),
-          companyId: perfil.companyId,
-          origem: 'agenda'
-        })).id;
-        
-        const idsDosServicos = agenda.servicoIds && agenda.servicoIds.length > 0 ? agenda.servicoIds : [agenda.servicoId];
-        
-        for (const sId of idsDosServicos) {
-          const servicoRef = doc(db, 'servicos', sId);
-          const servicoSnap = await getDoc(servicoRef);
-          
-          if (servicoSnap.exists()) {
-            const dadosServico = servicoSnap.data();
-            const materiais = dadosServico.materiaisConsumidos || [];
-
-            for (const mat of materiais) {
-                const nomeMaterial = mat.nomeMaterial;
-                const qtdConsumida = parseFloat(mat.quantidade) || 0;
-
-                if (nomeMaterial && qtdConsumida > 0) {
-                    const qEstoque = query(
-                    collection(db, 'estoque'), 
-                    where('companyId', '==', perfil.companyId),
-                    where('nome', '==', nomeMaterial)
-                  );
-                  const querySnapshot = await getDocs(qEstoque);
-                  
-                  if (!querySnapshot.empty) {
-                      const itemEstoque = querySnapshot.docs[0];
-                      const qtdAtual = itemEstoque.data().quantidade;
-                      await updateDoc(doc(db, 'estoque', itemEstoque.id), {
-                          quantidade: Math.max(0, qtdAtual - qtdConsumida)
-                      });
-                  }
-                }
-            }
-          }
-        }
-      }
-
-      await updateDoc(doc(db, 'agendamentos', agenda.id), { 
-          status: 'concluido',
-          bloquearConclusaoAuto: false, 
-          transacaoCaixaId: transacaoId 
-      });
-
-      toast.success("Serviço concluído com sucesso! Caixa e Estoque atualizados.");
-
-    } catch (erro) {
-      toast.error("Houve um erro ao tentar concluir o serviço.");
-    }
+    await efetuarConclusao(agenda, false);
   }
 
   async function reverterConclusao(agenda: Agendamento) {
       const confirmar = window.confirm(`Deseja REVERTER o serviço de ${agenda.clienteNome}? O valor sairá do Caixa e os materiais voltarão ao Estoque.`);
       if (!confirmar) return;
-
-      try {
-          await updateDoc(doc(db, 'agendamentos', agenda.id), { 
-              status: 'pendente',
-              bloquearConclusaoAuto: true, 
-              transacaoCaixaId: null 
-          });
-
-          if (agenda.transacaoCaixaId && perfil?.companyId) {
-              await deleteDoc(doc(db, 'financas', agenda.transacaoCaixaId));
-          }
-
-          const idsDosServicos = agenda.servicoIds && agenda.servicoIds.length > 0 ? agenda.servicoIds : [agenda.servicoId];
-
-          for (const sId of idsDosServicos) {
-            const servicoRef = doc(db, 'servicos', sId);
-            const servicoSnap = await getDoc(servicoRef);
-            
-            if (servicoSnap.exists() && perfil?.companyId) {
-              const dadosServico = servicoSnap.data();
-              const materiais = dadosServico.materiaisConsumidos || [];
-
-              for (const mat of materiais) {
-                  const nomeMaterial = mat.nomeMaterial;
-                  const qtdConsumida = parseFloat(mat.quantidade) || 0;
-
-                  if (nomeMaterial && qtdConsumida > 0) {
-                      const qEstoque = query(
-                          collection(db, 'estoque'), 
-                          where('companyId', '==', perfil.companyId),
-                          where('nome', '==', nomeMaterial)
-                      );
-                      const querySnapshot = await getDocs(qEstoque);
-                      
-                      if (!querySnapshot.empty) {
-                          const itemEstoque = querySnapshot.docs[0];
-                          const qtdAtual = itemEstoque.data().quantidade;
-                          await updateDoc(doc(db, 'estoque', itemEstoque.id), {
-                              quantidade: qtdAtual + qtdConsumida
-                          });
-                      }
-                  }
-              }
-            }
-          }
-
-          toast.success("Agendamento revertido para pendente! Ele não será concluído automaticamente.");
-
-      } catch (error) {
-          toast.error("Erro ao tentar reverter o agendamento.");
-      }
+      await efetuarReversao(agenda, false);
   }
 
   function mudarDia(delta: number) {
@@ -1167,19 +1187,18 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
                   <div key={agenda.id} style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', padding: '15px', border: '1px solid var(--borda)', borderRadius: '8px', borderLeft: agenda.status === 'concluido' ? '5px solid #2ecc71' : '5px solid #f39c12', backgroundColor: 'var(--bg-card-item)', position: 'relative' }}>
                     <div>
                       <h4 style={{ margin: '0 0 5px 0', color: 'var(--text-principal)', fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        {agenda.dataHora.split('T')[1]} - {agenda.clienteNome}
+                        {agenda.dataHora.split('T')[1]} - {agenda.clienteNome.split(' ')[0] + ' ' + agenda.clienteNome.split(' ')[1]}
                         {agenda.googleSyncPending && <span style={{ fontSize: '12px', color: '#e67e22', fontStyle: 'italic', fontWeight: 'normal' }}>(Aguardando...)</span>}
-                        {agenda.status === 'concluido' && <span style={{ fontSize: '12px', color: '#27ae60', fontWeight: 'bold' }}>(Finalizado)</span>}
+                        {agenda.status === 'concluido' && <span style={{ fontSize: '12px', color: '#27ae60', fontWeight: 'bold' }}>(Atendido)</span>}
                       </h4>
                       <span style={{ fontSize: '14px', color: 'var(--text-secundario)', display: 'block', marginBottom: '3px' }}>
-                        {agenda.servicoNome} | <strong>R$ {agenda.preco.toFixed(2)}</strong>
+                        {agenda.servicoNome}
                       </span>
                       <span style={{ fontSize: '13px', color: 'var(--text-secundario)' }}>
                         Prof: {agenda.funcionarioEmail ? (funcionarios.find(f => f.email === agenda.funcionarioEmail)?.nome || 'Não definido') : 'Não definido'}
                       </span>
                     </div>
 
-                    {/* MENU 3 PONTINHOS UNIFICADO */}
                     <div style={{ position: 'relative', marginTop: '10px' }}>
                       <button 
                         onClick={(e) => {
@@ -1223,6 +1242,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
                         >
                           {agenda.status === 'pendente' ? (
                             <>
+                              <label style={{backgroundColor: 'darkgray', padding: '5px 15px', color: 'black'}} htmlFor="lembrete">{agenda.clienteNome}</label>
                               <button 
                                 onClick={() => { setMenuAbertoId(null); setAgendaLembreteAlvo(agenda); }}
                                 style={itemMenuEstilo}

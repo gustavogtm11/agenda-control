@@ -251,7 +251,8 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [perfil]);
+
   const dismissPwaPrompt = () => {
     setShowPwaPrompt(false);
     sessionStorage.setItem('@App:pwaPromptDismissed', 'true');
