@@ -11,7 +11,10 @@ node_modules
 dist
 dist-ssr
 *.local
-
+functions/chave-firebase.json
+*.json
+.env
+.env.local
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

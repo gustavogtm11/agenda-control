@@ -339,7 +339,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
     // DADOS DO ONESIGNAL (Substitua pela sua REST API KEY se necessário)
     const ONESIGNAL_APP_ID = "a05664b1-082c-49e7-8348-56f901293513";
-    const ONESIGNAL_REST_API_KEY = "os_v2_app_ublgjmiifre6pa2ik34qckjvcnqid2ebfajulu4tyzbsfrh3ufcyazeu4yleaqx4chw4pkntjansh6amhgflaoorw4f2yiboe2cn6ji"; 
+    const ONESIGNAL_REST_API_KEY = import.meta.env.VITE_API_NOTIFICATION_KEY;
 
     const body = {
       app_id: ONESIGNAL_APP_ID,
