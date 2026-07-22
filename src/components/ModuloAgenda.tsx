@@ -319,12 +319,12 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     };
   }, [agendamentos, perfil?.companyId, funcionarios]);
 
-  // =========================================================
+ // =========================================================
   // ONESIGNAL: AGENDAR PUSH NOTIFICATION
   // =========================================================
   const agendarNotificacaoPush = async (dataHorarioAtendimento: Date, tempoLembreteMinutos: number, nomeCliente: string) => {
     if (!perfil?.email) {
-      console.warn("Nenhum e-mail de perfil encontrado para agendar a notificação.");
+      console.warn("⚠️ Nenhum e-mail de perfil encontrado para agendar a notificação.");
       return;
     }
     
@@ -337,13 +337,14 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
     const sendAfterFormatado = formatarDataOneSignal(dataNotificacao);
 
-    // DADOS DO ONESIGNAL (Substitua pela sua REST API KEY se necessário)
+    // DADOS DO ONESIGNAL
     const ONESIGNAL_APP_ID = "a05664b1-082c-49e7-8348-56f901293513";
-    const ONESIGNAL_REST_API_KEY = import.meta.env.VITE_API_NOTIFICATION_KEY;
+    const ONESIGNAL_REST_API_KEY = "os_v2_app_ublgjmiifre6pa2ik34qckjvcnqid2ebfajulu4tyzbsfrh3ufcyazeu4yleaqx4chw4pkntjansh6amhgflaoorw4f2yiboe2cn6ji"; 
 
     const body = {
       app_id: ONESIGNAL_APP_ID,
       include_aliases: { external_id: [perfil?.email] },
+      target_channel: "push", // Adicionado para garantir o direcionamento na v16
       headings: { en: "Lembrete de Atendimento", pt: "Lembrete de Atendimento" },
       contents: { 
         en: `Você tem um atendimento com ${nomeCliente} em ${tempoLembreteMinutos} minutos!`,
@@ -353,7 +354,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     };
 
     try {
-      await fetch("https://onesignal.com/api/v1/notifications", {
+      const response = await fetch("https://onesignal.com/api/v1/notifications", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -361,9 +362,16 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
         },
         body: JSON.stringify(body)
       });
-      console.log("Push agendado no OneSignal para:", sendAfterFormatado);
+      
+      const responseData = await response.json();
+      
+      if (response.ok) {
+        console.log("✅ Push agendado no OneSignal para:", sendAfterFormatado, responseData);
+      } else {
+        console.error("❌ Falha na API do OneSignal:", responseData);
+      }
     } catch (error) {
-      console.error("Erro ao agendar Push no OneSignal", error);
+      console.error("❌ Erro ao agendar Push no OneSignal", error);
     }
   };
 

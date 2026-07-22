@@ -357,7 +357,7 @@ export function ModuloConfiguracoes({ perfil }: ModuloConfiguracoesProps) {
                                     onChange={(e) => setMinutosAvisoPrevioAgenda(Number(e.target.value))} 
                                     style={{...inputStyle, padding: '8px', width: 'auto', cursor: 'pointer'}}
                                 >
-                                    <option value={15}>15 Minutos antes</option>
+                                    <option value={5}>2 Minutos antes</option>
                                     <option value={30}>30 Minutos antes</option>
                                     <option value={60}>1 Hora antes</option>
                                     <option value={120}>2 Horas antes</option>

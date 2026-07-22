@@ -186,10 +186,16 @@ export default function App() {
       if (user) {
         setUsuario(user);
         
-        // Associa o e-mail do usuário logado ao OneSignal para envios direcionados
+        // CORREÇÃO 1: Inicializar o OneSignal e pedir permissão antes do login
         if (user.email) {
           window.OneSignalDeferred = window.OneSignalDeferred || [];
           window.OneSignalDeferred.push(async (OneSignal: any) => {
+            await OneSignal.init({
+              appId: "a05664b1-082c-49e7-8348-56f901293513",
+            });
+            // Pede permissão nativa para enviar notificações (Obrigatório)
+            await OneSignal.Slidedown.promptPush(); 
+            // Faz o vínculo do usuário
             await OneSignal.login(user.email!);
           });
         }
@@ -202,8 +208,13 @@ export default function App() {
           
           if (docSnap.exists()) {
             const dadosPerfil = docSnap.data();
-            setPerfil(dadosPerfil);
-            localStorage.setItem('@App:perfil', JSON.stringify(dadosPerfil));
+            
+            // CORREÇÃO 2: Garantir que o email seja passado para o perfil
+            // Isso é essencial para o ModuloAgenda conseguir disparar o OneSignal
+            const perfilCompleto = { ...dadosPerfil, email: user.email }; 
+            
+            setPerfil(perfilCompleto);
+            localStorage.setItem('@App:perfil', JSON.stringify(perfilCompleto));
             
             if (dadosPerfil.companyId) {
               const empresaRef = doc(db, 'empresas', dadosPerfil.companyId);
@@ -241,7 +252,6 @@ export default function App() {
 
     return () => unsubscribe();
   }, []);
-
   const dismissPwaPrompt = () => {
     setShowPwaPrompt(false);
     sessionStorage.setItem('@App:pwaPromptDismissed', 'true');
