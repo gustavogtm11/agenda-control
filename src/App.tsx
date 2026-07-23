@@ -19,6 +19,9 @@ declare global {
   }
 }
 
+// Trava para evitar múltiplas inicializações do OneSignal
+let isOneSignalInit = false;
+
 // ============================================================================
 // TOAST CONTEXT PARA SUBSTITUIR ALERT() GLOBALMENTE
 // ============================================================================
@@ -139,7 +142,6 @@ export default function App() {
   });
   
   const [authLoading, setAuthLoading] = useState(true);
-  const [carregandoPerfil, setCarregandoPerfil] = useState(false);
 
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [showPwaPrompt, setShowPwaPrompt] = useState(false);
@@ -180,37 +182,45 @@ export default function App() {
     };
   }, []);
 
-  // 3. GERENCIAMENTO DE AUTENTICAÇÃO E IDENTIFICAÇÃO NO ONESIGNAL
+  // 3. INICIALIZAÇÃO ÚNICA DO ONESIGNAL
+  useEffect(() => {
+    window.OneSignalDeferred = window.OneSignalDeferred || [];
+    window.OneSignalDeferred.push(async (OneSignal: any) => {
+      if (!isOneSignalInit) {
+        try {
+          await OneSignal.init({
+            appId: "a05664b1-082c-49e7-8348-56f901293513",
+            serviceWorkerParam: { scope: "/" },
+            serviceWorkerPath: "sw.js"
+          });
+          isOneSignalInit = true; 
+        } catch (error) {
+          console.warn("OneSignal tentou inicializar novamente e foi bloqueado.");
+        }
+      }
+    });
+  }, []);
+
+  // 4. GERENCIAMENTO DE AUTENTICAÇÃO E IDENTIFICAÇÃO NO ONESIGNAL
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        setUsuario(user);
-        
-        // CORREÇÃO 1: Inicializar o OneSignal e pedir permissão antes do login
-        if (user.email) {
-          window.OneSignalDeferred = window.OneSignalDeferred || [];
-          window.OneSignalDeferred.push(async (OneSignal: any) => {
-            await OneSignal.init({
-              appId: "a05664b1-082c-49e7-8348-56f901293513",
+      try {
+        if (user) {
+          setUsuario(user);
+          
+          if (user.email) {
+            window.OneSignalDeferred = window.OneSignalDeferred || [];
+            window.OneSignalDeferred.push(async (OneSignal: any) => {
+              await OneSignal.Slidedown.promptPush(); 
+              await OneSignal.login(user.email!);
             });
-            // Pede permissão nativa para enviar notificações (Obrigatório)
-            await OneSignal.Slidedown.promptPush(); 
-            // Faz o vínculo do usuário
-            await OneSignal.login(user.email!);
-          });
-        }
+          }
 
-        if (!perfil) setCarregandoPerfil(true);
-
-        try {
           const docRef = doc(db, 'usuarios', user.email || '');
           const docSnap = await getDoc(docRef);
           
           if (docSnap.exists()) {
             const dadosPerfil = docSnap.data();
-            
-            // CORREÇÃO 2: Garantir que o email seja passado para o perfil
-            // Isso é essencial para o ModuloAgenda conseguir disparar o OneSignal
             const perfilCompleto = { ...dadosPerfil, email: user.email }; 
             
             setPerfil(perfilCompleto);
@@ -229,36 +239,34 @@ export default function App() {
             setPerfil(null);
             localStorage.removeItem('@App:perfil');
           }
-        } catch (error) {
-          console.error("Erro ao buscar perfil:", error);
-        } finally {
-          setCarregandoPerfil(false);
-          setAuthLoading(false);
-        }
-      } else {
-        // Desconecta o usuário do OneSignal ao fazer logout
-        window.OneSignalDeferred = window.OneSignalDeferred || [];
-        window.OneSignalDeferred.push(async (OneSignal: any) => {
-          await OneSignal.logout();
-        });
+        } else {
+          window.OneSignalDeferred = window.OneSignalDeferred || [];
+          window.OneSignalDeferred.push(async (OneSignal: any) => {
+            await OneSignal.logout();
+          });
 
-        setUsuario(null);
-        setPerfil(null);
-        localStorage.removeItem('@App:perfil');
-        localStorage.removeItem('@App:bloqueada');
+          setUsuario(null);
+          setPerfil(null);
+          localStorage.removeItem('@App:perfil');
+          localStorage.removeItem('@App:bloqueada');
+        }
+      } catch (error) {
+        console.error("Erro ao verificar autenticação/perfil:", error);
+      } finally {
+        // O carregamento só termina APÓS o Firebase validar o usuário e atualizar o Firestore
         setAuthLoading(false);
       }
     });
 
     return () => unsubscribe();
-  }, [perfil]);
+  }, []);
 
   const dismissPwaPrompt = () => {
     setShowPwaPrompt(false);
     sessionStorage.setItem('@App:pwaPromptDismissed', 'true');
   };
 
-  if (authLoading || carregandoPerfil) {
+  if (authLoading) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100vh', backgroundColor: '#f5f6fa' }}>
         <div style={{ width: '60px', height: '60px', border: '4px solid #e1e8ed', borderTop: '4px solid #3498db', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>

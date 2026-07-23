@@ -26,7 +26,7 @@ export function Login() {
       const token = credenciais?.accessToken;
       
       if (token) {
-        sessionStorage.setItem('googleToken', token);
+        localStorage.setItem('googleToken', token);
       }
 
       // Com o login feito e o token salvo, jogamos o usuário para dentro do painel

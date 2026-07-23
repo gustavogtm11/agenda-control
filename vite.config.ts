@@ -8,8 +8,9 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       
-      // 1. REGISTRA OS ARQUIVOS COMO ATIVOS ESTÁTICOS DO PWA (Incluído o do OneSignal)
-      includeAssets: ['favicon.png', 'pwa-512x512.png', 'firebase-messaging-sw.js', 'OneSignalSDKWorker.js'],
+      // 1. REGISTRA OS ARQUIVOS COMO ATIVOS ESTÁTICOS DO PWA
+      // 💡 REMOVIDO: 'OneSignalSDKWorker.js' já que o importScripts fará o trabalho
+      includeAssets: ['favicon.png', 'pwa-512x512.png', 'firebase-messaging-sw.js'],
       
       manifest: {
         name: 'Sistema de Agendamentos',
@@ -38,6 +39,9 @@ export default defineConfig({
       },
       
       workbox: {
+        // 💡 ADICIONADO: Importa o Worker do OneSignal para dentro do sw.js gerado pelo Vite PWA
+        importScripts: ['https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js'],
+
         globPatterns: ['**/*.{js,css,html,ico,png,svg,wasm}'],
         cleanupOutdatedCaches: true,
 
@@ -45,8 +49,8 @@ export default defineConfig({
         navigateFallbackDenylist: [
           /^\/_/, 
           /firestore\.googleapis\.com/,
-          /firebase-messaging-sw\.js$/,
-          /OneSignalSDKWorker\.js$/ // 👈 ADICIONADO PARA O ONESIGNAL!
+          /firebase-messaging-sw\.js$/
+          // 💡 REMOVIDO o OneSignalSDKWorker daqui também
         ],
         
         runtimeCaching: [

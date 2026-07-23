@@ -100,7 +100,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   const [menuAbertoId, setMenuAbertoId] = useState<string | null>(null);
 
   const lidarComTokenExpirado = () => {
-    sessionStorage.removeItem('googleToken');
+    localStorage.removeItem('googleToken');
     toast.error("Sua sessão do Google Calendar expirou por segurança. Você será redirecionado para fazer login novamente.");
     signOut(auth); 
   };
@@ -360,7 +360,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   }, [agendamentos, tempoLembreteConfig, perfil?.companyId]); 
 
   useEffect(() => {
-    const tokenGoogle = sessionStorage.getItem('googleToken');
+    const tokenGoogle = localStorage.getItem('googleToken');
     if (!tokenGoogle || !perfil?.companyId || agendamentos.length === 0) return;
 
     const executarSincronizacao = async () => {
