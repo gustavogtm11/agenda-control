@@ -1188,8 +1188,8 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
                     <div>
                       <h4 style={{ margin: '0 0 5px 0', color: 'var(--text-principal)', fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                         {agenda.dataHora.split('T')[1]} - {agenda.clienteNome.split(' ')[0] + ' ' + agenda.clienteNome.split(' ')[1]}
-                        {agenda.googleSyncPending && <span style={{ fontSize: '12px', color: '#e67e22', fontStyle: 'italic', fontWeight: 'normal' }}>(Aguardando...)</span>}
-                        {agenda.status === 'concluido' && <span style={{ fontSize: '12px', color: '#27ae60', fontWeight: 'bold' }}>(Atendido)</span>}
+                        {agenda.googleSyncPending && <span style={{ fontSize: '12px', color: '#e67e22', fontStyle: 'italic', fontWeight: 'normal' }}>⌛</span>}
+                        {agenda.status === 'concluido' && <span style={{ fontSize: '12px', color: '#27ae60', fontWeight: 'bold' }}>✅</span>}
                       </h4>
                       <span style={{ fontSize: '14px', color: 'var(--text-secundario)', display: 'block', marginBottom: '3px' }}>
                         {agenda.servicoNome}
