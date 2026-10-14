@@ -8,7 +8,6 @@ import '../App.css';
 import { Toaster, toast } from "sonner";
 
 interface ModuloAgendaProps {
-  // Ajustado para receber email e nome, necessários para o OneSignal
   perfil: { companyId: string; role: string; nome?: string; email?: string } | null;
 }
 
@@ -76,7 +75,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   const [almocoConfig, setAlmocoConfig] = useState<any>(null);
   const [diasBloqueadosConfig, setDiasBloqueadosConfig] = useState<string[]>([]);
   const [mensagemLembreteConfig, setMensagemLembreteConfig] = useState<string>('');
-  const [tempoLembreteConfig, setTempoLembreteConfig] = useState<number>(30); // Estado para o tempo do OneSignal/Notificação
+  const [tempoLembreteConfig, setTempoLembreteConfig] = useState<number>(30); 
 
   const [mostrarFormulario, setMostrarFormulario] = useState(false);
 
@@ -99,20 +98,20 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   const [agendaLembreteAlvo, setAgendaLembreteAlvo] = useState<Agendamento | null>(null);
   const [menuAbertoId, setMenuAbertoId] = useState<string | null>(null);
 
+  const diaEstaBloqueado = diasBloqueadosConfig.includes(dataForm);
+
   const lidarComTokenExpirado = () => {
     localStorage.removeItem('googleToken');
     toast.error("Sua sessão do Google Calendar expirou por segurança. Você será redirecionado para fazer login novamente.");
     signOut(auth); 
   };
 
-  // Solicita permissão de notificação nativa ao carregar o módulo
   useEffect(() => {
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission();
     }
   }, []);
 
-  // Evento global para fechar menus suspensos de 3 pontinhos ao clicar fora
   useEffect(() => {
     const fecharMenus = () => setMenuAbertoId(null);
     window.addEventListener('click', fecharMenus);
@@ -180,17 +179,12 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     };
   }, [perfil?.companyId]);
 
-  // =========================================================
-  // FUNÇÕES DE CONCLUSÃO E REVERSÃO DE CAIXA (CENTRALIZADAS)
-  // =========================================================
-
   async function efetuarConclusao(agenda: Agendamento, isAuto = false) {
-    if (agenda.status === 'concluido') return; // Segurança contra duplicação
+    if (agenda.status === 'concluido') return; 
 
     try {
       let transacaoId = '';
       if (perfil?.companyId) {
-        // 1. Adicionar ao Caixa
         const docRef = await addDoc(collection(db, 'financas'), {
           descricao: `Serviço${isAuto ? ' (Automático)' : ''}: ${agenda.servicoNome} - Cliente: ${agenda.clienteNome}`,
           valor: agenda.preco,
@@ -201,7 +195,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
         });
         transacaoId = docRef.id;
         
-        // 2. Dar baixa no Estoque
         const idsDosServicos = agenda.servicoIds && agenda.servicoIds.length > 0 ? agenda.servicoIds : [agenda.servicoId];
         
         for (const sId of idsDosServicos) {
@@ -237,7 +230,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
         }
       }
 
-      // 3. Atualizar Status do Agendamento
       await updateDoc(doc(db, 'agendamentos', agenda.id), { 
           status: 'concluido',
           bloquearConclusaoAuto: false, 
@@ -256,12 +248,10 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     if (agenda.status !== 'concluido') return;
 
     try {
-        // 1. Remover do Caixa
         if (agenda.transacaoCaixaId && perfil?.companyId) {
             await deleteDoc(doc(db, 'financas', agenda.transacaoCaixaId));
         }
 
-        // 2. Devolver ao Estoque
         const idsDosServicos = agenda.servicoIds && agenda.servicoIds.length > 0 ? agenda.servicoIds : [agenda.servicoId];
 
         for (const sId of idsDosServicos) {
@@ -296,7 +286,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
           }
         }
 
-        // 3. Atualizar Status para Pendente
         await updateDoc(doc(db, 'agendamentos', agenda.id), { 
             status: 'pendente',
             bloquearConclusaoAuto: true, 
@@ -311,9 +300,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     }
   }
 
-  // =========================================================
-  // VERIFICADOR DE NOTIFICAÇÕES PRÉVIAS E CONCLUSÃO AUTOMÁTICA
-  // =========================================================
   useEffect(() => {
     if (agendamentos.length === 0) return;
 
@@ -327,7 +313,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
           
           const minutosAteInicio = (inicio.getTime() - agora.getTime()) / 60000;
 
-          // 1. NOTIFICAÇÃO PRÉVIA AO AGENDAMENTO (Tempo dinâmico)
           if (minutosAteInicio <= tempoLembreteConfig && minutosAteInicio > 0 && !ag.notificado30Min) {
             if ('Notification' in window && Notification.permission === 'granted') {
               new Notification('⏰ Lembrete de Agendamento!', {
@@ -338,14 +323,13 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
             try {
               await updateDoc(doc(db, 'agendamentos', ag.id), { 
-                notificado30Min: true // Mantido o nome no banco para retrocompatibilidade
+                notificado30Min: true 
               });
             } catch (err) {
               console.error("Erro ao registrar notificação enviada:", err);
             }
           }
 
-          // 2. CONCLUSÃO AUTOMÁTICA
           if (!ag.bloquearConclusaoAuto && agora >= fim) {
             await efetuarConclusao(ag, true);
           }
@@ -442,25 +426,13 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     };
   }, [agendamentos, perfil?.companyId, funcionarios]);
 
- // =========================================================
-  // ONESIGNAL: AGENDAR PUSH NOTIFICATION
-  // =========================================================
   const agendarNotificacaoPush = async (dataHorarioAtendimento: Date, tempoLembreteMinutos: number, nomeCliente: string) => {
-    if (!perfil?.email) {
-      console.warn("⚠️ Nenhum e-mail de perfil encontrado para agendar a notificação.");
-      return;
-    }
+    if (!perfil?.email) return;
     
     const dataNotificacao = new Date(dataHorarioAtendimento.getTime() - (tempoLembreteMinutos * 60000));
-    
-    if (dataNotificacao.getTime() < new Date().getTime()) {
-      console.log("Horário de lembrete já passou, notificação não será agendada.");
-      return;
-    }
+    if (dataNotificacao.getTime() < new Date().getTime()) return;
 
     const sendAfterFormatado = formatarDataOneSignal(dataNotificacao);
-
-    // DADOS DO ONESIGNAL
     const ONESIGNAL_APP_ID = "a05664b1-082c-49e7-8348-56f901293513";
     const ONESIGNAL_REST_API_KEY = "os_v2_app_ublgjmiifre6pa2ik34qckjvcnqid2ebfajulu4tyzbsfrh3ufcyazeu4yleaqx4chw4pkntjansh6amhgflaoorw4f2yiboe2cn6ji"; 
 
@@ -477,24 +449,13 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     };
 
     try {
-      const response = await fetch("https://onesignal.com/api/v1/notifications", {
+      await fetch("https://onesignal.com/api/v1/notifications", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Basic ${ONESIGNAL_REST_API_KEY}`
-        },
+        headers: { "Content-Type": "application/json", "Authorization": `Basic ${ONESIGNAL_REST_API_KEY}` },
         body: JSON.stringify(body)
       });
-      
-      const responseData = await response.json();
-      
-      if (response.ok) {
-        console.log("✅ Push agendado no OneSignal para:", sendAfterFormatado, responseData);
-      } else {
-        console.error("❌ Falha na API do OneSignal:", responseData);
-      }
     } catch (error) {
-      console.error("❌ Erro ao agendar Push no OneSignal", error);
+      console.error("Erro ao agendar Push no OneSignal", error);
     }
   };
 
@@ -502,7 +463,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     const todosHorarios = gerarHorarios();
     if (!dataForm || !configHorarios) return todosHorarios;
 
-    // CORREÇÃO: Bloqueia imediatamente se a data selecionada estiver na lista de dias bloqueados
+    // Se o dia estiver bloqueado, retorna lista vazia para bloquear agendamentos comuns
     if (diasBloqueadosConfig.includes(dataForm)) return []; 
 
     const [ano, mes, dia] = dataForm.split('-').map(Number);
@@ -536,7 +497,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
       const fimDesejado = inicioDesejado + duracaoAtual;
 
       if (inicioDesejado < inicioExpediente || fimDesejado > fimExpediente) return false;
-
       if (eHoje && inicioDesejado <= minutosAtuais) return false;
 
       const temConfigDeAlmoco = almocoConfig && almocoConfig.inicio && almocoConfig.fim;
@@ -627,7 +587,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   };
 
   const obterHorariosLivresParaWpp = (dataStr: string) => {
-    // CORREÇÃO: Respeita dias bloqueados também na geração de links/listas para WhatsApp
     if (!configHorarios || diasBloqueadosConfig.includes(dataStr)) return [];
     
     const [ano, mes, dia] = dataStr.split('-').map(Number);
@@ -655,7 +614,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
         const minutosAtual = h * 60 + m;
         
         if (minutosAtual < inicioExpediente || minutosAtual >= fimExpediente) return false;
-
         if (eHoje && minutosAtual <= minutosAtuais) return false;
 
         const temConfigDeAlmoco = almocoConfig && almocoConfig.inicio && almocoConfig.fim;
@@ -733,6 +691,12 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
   async function lidarComAgendamento(e: React.FormEvent) {
     e.preventDefault();
+    
+    if (diaEstaBloqueado) {
+      toast.error("❌ Este dia está bloqueado/fechado. Não é permitido realizar agendamentos.");
+      return;
+    }
+
     if (!cliente || !dataForm || !horaForm || servicoIdsSelecionados.length === 0 || !perfil?.companyId) {
       toast.error("Preencha todos os campos obrigatórios (incluindo pelo menos um serviço)!");
       return;
@@ -804,9 +768,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
         });
         
         toast.success("Agendamento atualizado com sucesso!");
-        
         await agendarNotificacaoPush(dataHoraAtendimento, tempoLembreteConfig, cliente);
-        
       } catch (err) {
         toast.error("Erro ao salvar no banco local.");
       }
@@ -852,9 +814,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
         });
         
         toast.success("Agendamento efetuado!");
-        
         await agendarNotificacaoPush(dataHoraAtendimento, tempoLembreteConfig, cliente);
-        
       } catch (err) {
         toast.error("Erro ao salvar o agendamento localmente.");
       }
@@ -889,8 +849,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     if (window.confirm("Tem certeza? O agendamento será excluído do sistema.")) {
       const toastId = toast.loading("Excluindo agendamento...");
       try {
-        
-        // Se estava concluído, primeiro reverte do caixa e do estoque silenciosamente.
         if (agenda.status === 'concluido') {
             await efetuarReversao(agenda, true);
         }
@@ -906,7 +864,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
                 method: 'DELETE',
                 headers: { 'Authorization': `Bearer ${tokenGoogle}` }
               });
-              
               if (res.status === 401) { lidarComTokenExpirado(); }
             } catch (err) {
               armazenarExclusaoPendente(agenda.googleEventId);
@@ -1014,19 +971,34 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
           
           <form onSubmit={lidarComAgendamento} style={{ display: 'flex', gap: '10px', marginBottom: '30px', flexWrap: 'wrap', paddingBottom: '20px', borderBottom: '2px dashed var(--borda)' }}>
             
+            {/* AVISO VISUAL DE DIA BLOQUEADO */}
+            {diaEstaBloqueado && (
+              <div style={{ width: '100%', backgroundColor: '#fde8e8', border: '1px solid #f8b4b4', color: '#c53030', padding: '15px', borderRadius: '6px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '20px' }}>🛑</span>
+                <div>
+                  <div>Atenção: Esta data ({dataForm.split('-').reverse().join('/')}) está BLOQUEADA no sistema.</div>
+                  <div style={{ fontSize: '13px', fontWeight: 'normal', marginTop: '3px' }}>Nenhum agendamento poderá ser feito a menos que você remova este bloqueio nas Configurações.</div>
+                </div>
+              </div>
+            )}
+
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', flex: '1 1 100%' }}>
                 <input type="text" placeholder="Nome do Cliente" value={cliente} onChange={e => setCliente(e.target.value)} style={{ ...inputStyle, flex: '1 1 200px' }} />
                 <input type="date" value={dataForm} onChange={e => setDataForm(e.target.value)} style={{ ...inputStyle, flex: '1 1 130px' }} />
                 
-                <select value={horaForm} onChange={e => setHoraForm(e.target.value)} style={{ ...inputStyle, flex: '1 1 120px' }}>
-                  {(isEncaixeAtivo ? horariosEncaixe : horariosValidos).map(h => {
-                      const disponivel = horariosValidos.includes(h);
-                      return (
-                        <option key={h} value={h}>
-                          {h} {isEncaixeAtivo && !disponivel ? '(Encaixe/Ocupado)' : ''}
-                        </option>
-                      )
-                  })}
+                <select value={horaForm} onChange={e => setHoraForm(e.target.value)} disabled={diaEstaBloqueado} style={{ ...inputStyle, flex: '1 1 120px', backgroundColor: diaEstaBloqueado ? '#f5f5f5' : 'var(--bg-input)' }}>
+                  {diaEstaBloqueado ? (
+                    <option value="">🔒 [DIA BLOQUEADO / FECHADO]</option>
+                  ) : (
+                    (isEncaixeAtivo ? horariosEncaixe : horariosValidos).map(h => {
+                        const disponivel = horariosValidos.includes(h);
+                        return (
+                          <option key={h} value={h}>
+                            {h} {isEncaixeAtivo && !disponivel ? '(Encaixe/Ocupado)' : ''}
+                          </option>
+                        )
+                    })
+                  )}
                 </select>
 
                 <select value={emailFuncionarioSelecionado} onChange={e => setEmailFuncionarioSelecionado(e.target.value)} style={{ ...inputStyle, flex: '1 1 180px' }}>
@@ -1077,11 +1049,11 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
               </label>
             </div>
             
-            <button type="submit" style={{ padding: '12px 20px', backgroundColor: idEmEdicao ? '#e67e22' : '#2980b9', color: 'white', border: 'none', cursor: 'pointer', borderRadius: '6px', fontWeight: 'bold' }}>
-              {idEmEdicao ? 'Atualizar Agendamento' : 'Salvar Agendamento'}
+            <button type="submit" disabled={diaEstaBloqueado} style={{ padding: '12px 20px', backgroundColor: diaEstaBloqueado ? '#95a5a6' : (idEmEdicao ? '#e67e22' : '#2980b9'), color: 'white', border: 'none', cursor: diaEstaBloqueado ? 'not-allowed' : 'pointer', borderRadius: '6px', fontWeight: 'bold', width: '100%' }}>
+              {diaEstaBloqueado ? '🚫 Agendamentos Bloqueados para esta Data' : (idEmEdicao ? 'Atualizar Agendamento' : 'Salvar Agendamento')}
             </button>
             {idEmEdicao && (
-              <button type="button" onClick={cancelarEdicao} style={{ padding: '12px 20px', backgroundColor: 'var(--text-secundario)', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Cancelar</button>
+              <button type="button" onClick={cancelarEdicao} style={{ padding: '12px 20px', backgroundColor: 'var(--text-secundario)', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', width: '100%' }}>Cancelar</button>
             )}
           </form>
         </div>
