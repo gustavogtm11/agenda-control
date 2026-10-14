@@ -674,7 +674,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
         dataAtual.setDate(dataAtual.getDate() + 1);
     }
     
-    if (textoFinal === "Olá! Aqui estão nuestros horários disponíveis:\n\n") {
+    if (textoFinal === "Olá! Aqui estão nossos horários disponíveis:\n\n") {
         textoFinal = "Não há horários disponíveis no período selecionado ou a empresa está fechada nesses dias.";
     }
 
