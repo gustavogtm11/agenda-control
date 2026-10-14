@@ -160,7 +160,13 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
               setAlmocoConfig(dados.configuracoesGlobais.horarioAlmoco);
           }
           
-          if (dados.diasBloqueados) setDiasBloqueadosConfig(dados.diasBloqueados);
+          // CORREÇÃO: Captura correta dos dias bloqueados dentro de configuracoesGlobais ou na raiz
+          if (dados.configuracoesGlobais?.diasBloqueados) {
+              setDiasBloqueadosConfig(dados.configuracoesGlobais.diasBloqueados);
+          } else if (dados.diasBloqueados) {
+              setDiasBloqueadosConfig(dados.diasBloqueados);
+          }
+
           if (dados.mensagemLembrete) setMensagemLembreteConfig(dados.mensagemLembrete);
           
           if (dados.minutosAvisoPrevioAgenda !== undefined) {
@@ -463,7 +469,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     const todosHorarios = gerarHorarios();
     if (!dataForm || !configHorarios) return todosHorarios;
 
-    // Se o dia estiver bloqueado, retorna lista vazia para bloquear agendamentos comuns
     if (diasBloqueadosConfig.includes(dataForm)) return []; 
 
     const [ano, mes, dia] = dataForm.split('-').map(Number);
@@ -648,7 +653,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
         return;
     }
 
-    let textoFinal = "Olá! Aqui estão nossos horários disponíveis:\n\n";
+    let textoFinal = "Olá! Aqui estão nuestros horários disponíveis:\n\n";
     let dataAtual = new Date(inicio);
     const nomesDias = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
 
@@ -669,7 +674,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
         dataAtual.setDate(dataAtual.getDate() + 1);
     }
     
-    if (textoFinal === "Olá! Aqui estão nossos horários disponíveis:\n\n") {
+    if (textoFinal === "Olá! Aqui estão nuestros horários disponíveis:\n\n") {
         textoFinal = "Não há horários disponíveis no período selecionado ou a empresa está fechada nesses dias.";
     }
 
