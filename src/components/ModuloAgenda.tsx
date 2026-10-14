@@ -502,6 +502,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     const todosHorarios = gerarHorarios();
     if (!dataForm || !configHorarios) return todosHorarios;
 
+    // CORREÇÃO: Bloqueia imediatamente se a data selecionada estiver na lista de dias bloqueados
     if (diasBloqueadosConfig.includes(dataForm)) return []; 
 
     const [ano, mes, dia] = dataForm.split('-').map(Number);
@@ -626,6 +627,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   };
 
   const obterHorariosLivresParaWpp = (dataStr: string) => {
+    // CORREÇÃO: Respeita dias bloqueados também na geração de links/listas para WhatsApp
     if (!configHorarios || diasBloqueadosConfig.includes(dataStr)) return [];
     
     const [ano, mes, dia] = dataStr.split('-').map(Number);
@@ -1187,7 +1189,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
                   <div key={agenda.id} style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', padding: '15px', border: '1px solid var(--borda)', borderRadius: '8px', borderLeft: agenda.status === 'concluido' ? '5px solid #2ecc71' : '5px solid #f39c12', backgroundColor: 'var(--bg-card-item)', position: 'relative' }}>
                     <div>
                       <h4 style={{ margin: '0 0 5px 0', color: 'var(--text-principal)', fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        {agenda.dataHora.split('T')[1]} - {agenda.clienteNome.split(' ')[0] + ' ' + agenda.clienteNome.split(' ')[1]}
+                        {agenda.dataHora.split('T')[1]} - {agenda.clienteNome.split(' ')[0] + ' ' + (agenda.clienteNome.split(' ')[1] || '')}
                         {agenda.googleSyncPending && <span style={{ fontSize: '12px', color: '#e67e22', fontStyle: 'italic', fontWeight: 'normal' }}>⌛</span>}
                         {agenda.status === 'concluido' && <span style={{ fontSize: '12px', color: '#27ae60', fontWeight: 'bold' }}>✅</span>}
                       </h4>
@@ -1242,7 +1244,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
                         >
                           {agenda.status === 'pendente' ? (
                             <>
-                              <label style={{backgroundColor: 'darkgray', padding: '5px 15px', color: 'black'}} htmlFor="lembrete">{agenda.clienteNome}</label>
                               <button 
                                 onClick={() => { setMenuAbertoId(null); setAgendaLembreteAlvo(agenda); }}
                                 style={itemMenuEstilo}
