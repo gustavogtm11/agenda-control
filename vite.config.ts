@@ -46,6 +46,47 @@ export default defineConfig(({ mode }) => {
       }),
     ],
     server: {
+      configureServer(server) {
+        // Intercepta a configuração do webhook para injetar a URL somente no servidor local.
+        // Assim o segredo do webhook e a chave Evolution não entram no bundle React.
+        server.middlewares.use('/api/evolution/webhook/instance/update', async (req, res, next) => {
+          if (req.method !== 'POST') return next();
+          const instanceName = String(req.url || '').split('?')[0].replace(/^\/+/, '');
+          if (!/^[a-zA-Z0-9_-]{1,100}$/.test(instanceName)) return next();
+          if (!env.WHATSAPP_WEBHOOK_URL) {
+            res.statusCode = 503;
+            res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            res.end(JSON.stringify({ error: 'Configure WHATSAPP_WEBHOOK_URL no .env.local para ativar o recebimento de mensagens.' }));
+            return;
+          }
+
+          try {
+            const chunks = [];
+            for await (const chunk of req) chunks.push(Buffer.from(chunk));
+            const target = String(env.EVOLUTION_API_URL || 'https://evolution-api-free-test.onrender.com').replace(/\/$/, '');
+            const upstream = await fetch(`${target}/webhook/instance/update/${encodeURIComponent(instanceName)}`, {
+              method: 'POST',
+              headers: {
+                apikey: env.EVOLUTION_API_KEY || '',
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                webhookUrl: env.WHATSAPP_WEBHOOK_URL,
+                webhookEvents: ['messages.upsert', 'messages.update'],
+              }),
+            });
+            const responseText = await upstream.text();
+            res.statusCode = upstream.status;
+            res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/json; charset=utf-8');
+            res.end(responseText || '{}');
+          } catch (error) {
+            console.error('[Vite Evolution webhook proxy]', error);
+            res.statusCode = 502;
+            res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            res.end(JSON.stringify({ error: 'Não foi possível configurar o webhook da Evolution API.' }));
+          }
+        });
+      },
       proxy: {
         '/api/evolution': {
           target: env.EVOLUTION_API_URL || 'https://evolution-api-free-test.onrender.com',
