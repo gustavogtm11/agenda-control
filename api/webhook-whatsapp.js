@@ -3,7 +3,7 @@
 
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual, createHash } from 'node:crypto';
 
 function inicializarFirebase() {
   if (getApps().length) return;
@@ -550,10 +550,13 @@ export default async function handler(req, res) {
     // Cada empresa possui um segredo próprio, guardado numa coleção acessada pelo backend.
     const tokenRecebido = typeof req.query?.secret === 'string' ? req.query.secret : '';
     const segredoSnap = await db().collection('whatsapp_webhook_secrets').doc(companyId).get();
-    const segredoEsperado = segredoSnap.exists ? String(segredoSnap.data()?.secret || '') : '';
-    const tokenValido = tokenRecebido.length === segredoEsperado.length
-      && tokenRecebido.length > 0
-      && timingSafeEqual(Buffer.from(tokenRecebido), Buffer.from(segredoEsperado));
+    const segredoEsperadoHash = segredoSnap.exists ? String(segredoSnap.data()?.secretHash || '') : '';
+    const tokenRecebidoHash = tokenRecebido
+      ? createHash('sha256').update(tokenRecebido).digest('hex')
+      : '';
+    const tokenValido = tokenRecebidoHash.length === segredoEsperadoHash.length
+      && tokenRecebidoHash.length > 0
+      && timingSafeEqual(Buffer.from(tokenRecebidoHash), Buffer.from(segredoEsperadoHash));
     if (!tokenValido) return res.status(401).send('Webhook não autorizado.');
     if (key.fromMe === true || String(key.remoteJid || '').includes('@g.us') || String(key.remoteJidAlt || '').includes('@g.us')) {
       return res.status(200).send('Evento próprio/grupo ignorado.');
