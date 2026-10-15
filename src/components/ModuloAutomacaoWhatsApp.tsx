@@ -1,15 +1,29 @@
 // src/components/ModuloAutomacaoWhatsApp.tsx
 
 import { useState, useEffect } from 'react';
-import { db } from '../config/firebase';
+import { auth, db } from '../config/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { useToast } from '../App';
 
-// ============================================================================
-// CONFIGURAÇÕES GLOBAIS DA SUA EVOLUTION API (Fixo no código)
-// ============================================================================
-const EVOLUTION_API_URL = "http://localhost:8080/"; 
-const EVOLUTION_API_KEY = "150215"; 
+// A chave da Evolution fica no servidor/proxy, nunca no bundle React.
+async function evolutionFetch(path: string, method: 'GET' | 'POST', body?: unknown) {
+  const usuario = auth.currentUser;
+  if (!usuario) throw new Error('Sua sessão expirou. Entre novamente.');
+  const token = await usuario.getIdToken();
+  const response = await fetch(`/api/evolution${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  const texto = await response.text();
+  let data: any = {};
+  try { data = texto ? JSON.parse(texto) : {}; } catch { data = { message: texto }; }
+  if (!response.ok) throw new Error(data.error || data.message || `Evolution API respondeu HTTP ${response.status}.`);
+  return data;
+}
 
 interface ModuloAutomacaoProps {
   perfil: { companyId: string; role: string } | null;
@@ -77,28 +91,10 @@ export function ModuloAutomacaoWhatsApp({ perfil }: ModuloAutomacaoProps) {
     if (!perfil?.companyId) return;
     setCarregando(true);
     try {
-      const baseUrl = EVOLUTION_API_URL.replace(/\/$/, '');
-      const instanceName = perfil.companyId;
-
-      const response = await fetch(`${baseUrl}/webhook/instance/update/${instanceName}`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'apikey': EVOLUTION_API_KEY 
-        },
-        body: JSON.stringify({
-          webhookUrl: "http://192.168.0.X:3000/api/webhook-whatsapp",
-          webhookEvents: ["messages.upsert", "messages.update"]
-        })
-      });
-
-      if (response.ok) {
-        showToast('Webhook sincronizado com sucesso!', 'success');
-      } else {
-        showToast('Erro ao sincronizar Webhook.', 'error');
-      }
+      await evolutionFetch(`/webhook/instance/update/${encodeURIComponent(perfil.companyId)}`, 'POST', {});
+      showToast('Webhook sincronizado com sucesso!', 'success');
     } catch (error) {
-      showToast('Erro de comunicação com o servidor.', 'error');
+      showToast(error instanceof Error ? error.message : 'Erro ao sincronizar webhook.', 'error');
     } finally {
       setCarregando(false);
     }
@@ -107,24 +103,11 @@ export function ModuloAutomacaoWhatsApp({ perfil }: ModuloAutomacaoProps) {
   const verificarStatusConexao = async () => {
     if (!perfil?.companyId) return;
     setStatusConexao('verificando');
-    
     try {
-      const baseUrl = EVOLUTION_API_URL.replace(/\/$/, '');
-      const instanceName = perfil.companyId;
-
-      const response = await fetch(`${baseUrl}/instance/connectionState/${instanceName}`, {
-        method: 'GET',
-        headers: { 'apikey': EVOLUTION_API_KEY },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setStatusConexao(data?.instance?.state === 'open' ? 'conectado' : 'desconectado');
-      } else {
-        setStatusConexao('desconectado');
-      }
+      const data = await evolutionFetch(`/instance/connectionState/${encodeURIComponent(perfil.companyId)}`, 'GET');
+      setStatusConexao(data?.instance?.state === 'open' || data?.state === 'open' ? 'conectado' : 'desconectado');
     } catch (error) {
-      console.error("Erro ao verificar conexão:", error);
+      console.error('Erro ao verificar conexão:', error);
       setStatusConexao('desconectado');
     }
   };
@@ -134,62 +117,47 @@ export function ModuloAutomacaoWhatsApp({ perfil }: ModuloAutomacaoProps) {
       showToast('Erro: Empresa não identificada.', 'error');
       return;
     }
-    
+
     setCarregando(true);
     setQrCode(null);
-    
     try {
-      const baseUrl = EVOLUTION_API_URL.replace(/\/$/, '');
-      const instanceName = perfil.companyId; 
-
-      const responseCreate = await fetch(`${baseUrl}/instance/create`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': EVOLUTION_API_KEY,
-        },
-        body: JSON.stringify({
-          instanceName: instanceName,
+      let data: any;
+      try {
+        data = await evolutionFetch('/instance/create', 'POST', {
+          instanceName: perfil.companyId,
           qrcode: true,
-          integration: "WHATSAPP-BAILEYS"
-        })
-      });
-
-      const dataCreate = await responseCreate.json();
-
-      if (dataCreate?.qrcode?.base64 || dataCreate?.base64) {
-        setQrCode(dataCreate.qrcode?.base64 || dataCreate.base64);
-        showToast('Instância criada e QR Code gerado!', 'success');
-        setCarregando(false);
-        return;
+          integration: 'WHATSAPP-BAILEYS',
+        });
+      } catch (erroCriacao) {
+        data = await evolutionFetch(`/instance/connect/${encodeURIComponent(perfil.companyId)}`, 'GET')
+          .catch(() => { throw erroCriacao; });
       }
 
-      const responseConnect = await fetch(`${baseUrl}/instance/connect/${instanceName}`, {
-        method: 'GET',
-        headers: { 'apikey': EVOLUTION_API_KEY },
-      });
-
-      const dataConnect = await responseConnect.json();
-
-      if (dataConnect?.base64) {
-        setQrCode(dataConnect.base64);
-        showToast('QR Code obtido! Escaneie com seu WhatsApp.', 'success');
-      } else if (dataConnect?.instance?.state === 'open') {
+      const valorQr = data?.qrcode?.base64 || data?.base64 || data?.qr?.base64;
+      if (typeof valorQr === 'string' && valorQr) {
+        setQrCode(valorQr.startsWith('data:image') ? valorQr : `data:image/png;base64,${valorQr}`);
+        showToast('QR Code pronto! Escaneie com o WhatsApp da empresa.', 'success');
+      } else if (data?.instance?.state === 'open' || data?.state === 'open') {
         setStatusConexao('conectado');
         showToast('O WhatsApp já está conectado!', 'success');
       } else {
-        showToast('Erro ao buscar o QR Code.', 'error');
+        const estado = await evolutionFetch(`/instance/connectionState/${encodeURIComponent(perfil.companyId)}`, 'GET').catch(() => null);
+        if (estado?.instance?.state === 'open' || estado?.state === 'open') {
+          setStatusConexao('conectado');
+          showToast('O WhatsApp já está conectado!', 'success');
+        } else {
+          showToast('A API não retornou o QR Code. Tente novamente em alguns segundos.', 'error');
+        }
       }
-
     } catch (error) {
-      console.error(error);
-      showToast('Erro de comunicação com o servidor.', 'error');
+      console.error('Erro ao gerar QR Code:', error);
+      showToast(error instanceof Error ? error.message : 'Erro de comunicação com o servidor.', 'error');
     } finally {
       setCarregando(false);
     }
   };
 
-  const adicionarVariavel = (variavel: string) => {
+    const adicionarVariavel = (variavel: string) => {
     setConfig(prev => ({
       ...prev,
       [campoFocado]: prev[campoFocado] + ' ' + variavel
