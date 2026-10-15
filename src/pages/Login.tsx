@@ -2,7 +2,7 @@
 
 import { useNavigate } from 'react-router-dom';
 import { auth } from '../config/firebase';
-import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import { signInWithPopup, GoogleAuthProvider, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { useToast } from '../App';
 
 const provedorGoogle = new GoogleAuthProvider();
@@ -15,10 +15,13 @@ export function Login() {
 
   async function fazerLoginComGoogle() {
     try {
-      // Forçamos o Google a sempre exibir a tela de escolha de conta e permissão
-      provedorGoogle.setCustomParameters({ prompt: 'consent' }); 
-      
-      // Abre a janela flutuante de login
+      // Garante que a sessão do Firebase seja persistida no navegador.
+      // Aguarda a configuração antes de iniciar o login para evitar uma condição de corrida.
+      await setPersistence(auth, browserLocalPersistence);
+
+      // Não força uma nova tela de consentimento do Google a cada login.
+      provedorGoogle.setCustomParameters({ prompt: 'select_account' });
+
       const resultado = await signInWithPopup(auth, provedorGoogle);
       
       // Pegamos o "Crachá" (Token) direto do resultado da promessa
@@ -28,6 +31,8 @@ export function Login() {
       if (token) {
         localStorage.setItem('googleToken', token);
       }
+
+      localStorage.setItem('@App:lastActivity', String(Date.now()));
 
       // Com o login feito e o token salvo, jogamos o usuário para dentro do painel
       navegar('/painel');
