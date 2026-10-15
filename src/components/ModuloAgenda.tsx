@@ -181,7 +181,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
         console.error('[WhatsApp] Falha ao sincronizar cancelamento com Google Agenda:', error);
         toast.error('O agendamento foi cancelado no sistema, mas a sincronização com Google Agenda ficou pendente.');
       } finally {
-        if (!removido) cancelamentosGoogleProcessandoRef.current.delete(agendamentoId);
+        cancelamentosGoogleProcessandoRef.current.delete(agendamentoId);
       }
     };
 
