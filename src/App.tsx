@@ -201,11 +201,50 @@ export default function App() {
     });
   }, []);
 
+  // Atualiza o último acesso enquanto o usuário utiliza o sistema.
+  // A gravação é limitada a uma vez por minuto para evitar escritas excessivas.
+  useEffect(() => {
+    const registrarAtividade = () => {
+      if (!auth.currentUser) return;
+
+      const agora = Date.now();
+      const ultimaGravacao = Number(localStorage.getItem('@App:lastActivity') || 0);
+
+      if (agora - ultimaGravacao >= 60 * 1000) {
+        localStorage.setItem('@App:lastActivity', String(agora));
+      }
+    };
+
+    window.addEventListener('pointerdown', registrarAtividade);
+    window.addEventListener('keydown', registrarAtividade);
+    window.addEventListener('scroll', registrarAtividade);
+    window.addEventListener('touchstart', registrarAtividade);
+
+    return () => {
+      window.removeEventListener('pointerdown', registrarAtividade);
+      window.removeEventListener('keydown', registrarAtividade);
+      window.removeEventListener('scroll', registrarAtividade);
+      window.removeEventListener('touchstart', registrarAtividade);
+    };
+  }, []);
+
   // 4. GERENCIAMENTO DE AUTENTICAÇÃO E IDENTIFICAÇÃO NO ONESIGNAL
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       try {
         if (user) {
+          const ultimaAtividade = Number(localStorage.getItem('@App:lastActivity') || 0);
+          const prazoInatividade = 30 * 24 * 60 * 60 * 1000;
+
+          // Encerra a sessão somente se houver registro de atividade anterior
+          // e o usuário tiver ficado mais de 30 dias sem acessar o sistema.
+          if (ultimaAtividade > 0 && Date.now() - ultimaAtividade > prazoInatividade) {
+            localStorage.removeItem('@App:lastActivity');
+            await signOut(auth);
+            return;
+          }
+
+          localStorage.setItem('@App:lastActivity', String(Date.now()));
           setUsuario(user);
           
           if (user.email) {
