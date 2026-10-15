@@ -21,7 +21,11 @@ async function evolutionFetch(path: string, method: 'GET' | 'POST', body?: unkno
   const texto = await response.text();
   let data: any = {};
   try { data = texto ? JSON.parse(texto) : {}; } catch { data = { message: texto }; }
-  if (!response.ok) throw new Error(data.error || data.message || 'Evolution API respondeu HTTP ' + response.status + '.');
+  if (!response.ok) {
+    const detalhe = data.response?.message ?? data.message ?? data.error;
+    const mensagem = Array.isArray(detalhe) ? detalhe.flat(Infinity).join(' | ') : typeof detalhe === 'string' ? detalhe : detalhe ? JSON.stringify(detalhe) : '';
+    throw new Error((mensagem || 'Evolution API respondeu HTTP ' + response.status + '.') + ' (HTTP ' + response.status + ')');
+  }
   return data;
 }
 
