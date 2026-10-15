@@ -36,6 +36,21 @@ type DiaSemana = 'domingo' | 'segunda' | 'terca' | 'quarta' | 'quinta' | 'sexta'
 
 // O token pode estar em qualquer um dos dois storages, conforme o fluxo de login Google usado.
 const obterTokenGoogle = () => localStorage.getItem('googleToken') || sessionStorage.getItem('googleToken');
+
+// Gera um ID estável e aceito pelo Google Calendar para tornar a criação idempotente.
+// O mesmo documento do Firestore sempre aponta para o mesmo evento no Google.
+const gerarGoogleEventId = (documentoId: string) => {
+  const texto = `agenda-control-${documentoId}`;
+  let hashA = 0x811c9dc5;
+  let hashB = 0x01000193;
+  for (let i = 0; i < texto.length; i++) {
+    const codigo = texto.charCodeAt(i);
+    hashA = Math.imul(hashA ^ codigo, 0x01000193) >>> 0;
+    hashB = Math.imul(hashB ^ (codigo + i), 0x85ebca6b) >>> 0;
+  }
+  // Hexadecimal em letras minúsculas contém apenas caracteres válidos para o ID do Google.
+  return `a${hashA.toString(16).padStart(8, '0')}${hashB.toString(16).padStart(8, '0')}`;
+};
 interface HorarioDia { ativo: boolean; inicio: string; fim: string; }
 type HorariosFuncionamento = Record<DiaSemana, HorarioDia>;
 
@@ -377,16 +392,33 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
             if (res.status === 401) { lidarComTokenExpirado(); return; }
             if (res.ok) await updateDoc(doc(db, 'agendamentos', agenda.id), { googleSyncPending: false });
           } else {
-            const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all', {
+            // O ID é derivado do documento Firestore. Se uma tentativa anterior criou o evento
+            // mas perdeu a resposta, o próximo POST retorna 409 em vez de criar um duplicado.
+            const eventIdDeterministico = gerarGoogleEventId(agenda.id);
+            const urlEvento = `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventIdDeterministico}?sendUpdates=all`;
+            const eventoComId = { ...eventoGoogle, id: eventIdDeterministico };
+            let res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all', {
               method: 'POST',
               headers: { 'Authorization': `Bearer ${tokenGoogle}`, 'Content-Type': 'application/json' },
-              body: JSON.stringify(eventoGoogle)
+              body: JSON.stringify(eventoComId)
             });
+
             if (res.status === 401) { lidarComTokenExpirado(); return; }
+
+            if (res.status === 409) {
+              // Evento já existe: atualiza o mesmo ID, sem inserir um segundo.
+              res = await fetch(urlEvento, {
+                method: 'PUT',
+                headers: { 'Authorization': `Bearer ${tokenGoogle}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify(eventoComId)
+              });
+              if (res.status === 401) { lidarComTokenExpirado(); return; }
+            }
+
             if (res.ok) {
               const googleData = await res.json();
               await updateDoc(doc(db, 'agendamentos', agenda.id), {
-                googleEventId: googleData.id,
+                googleEventId: googleData.id || eventIdDeterministico,
                 googleSyncPending: false
               });
             }
@@ -793,31 +825,9 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
       }
       
     } else {
-      if (tokenGoogle) {
-        if (navigator.onLine) {
-          try {
-            const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all', {
-              method: 'POST',
-              headers: { 'Authorization': `Bearer ${tokenGoogle}`, 'Content-Type': 'application/json' },
-              body: JSON.stringify(eventoGoogle)
-            });
-
-            if (res.status === 401) { lidarComTokenExpirado(); return; }
-            if (res.ok) {
-              const googleData = await res.json();
-              googleEventIdSalvar = googleData.id;
-            } else {
-              googleSyncPending = true;
-            }
-          } catch (err) {
-            googleSyncPending = true;
-          }
-        } else {
-          googleSyncPending = true;
-        }
-      } else {
-          googleSyncPending = true; 
-      }
+      // Primeiro grava no Firestore (inclusive offline). A sincronização Google é feita
+      // depois usando um ID determinístico, para uma repetição nunca criar outro evento.
+      googleSyncPending = true;
 
       try {
         await addDoc(collection(db, 'agendamentos'), {
@@ -828,13 +838,13 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
             funcionarioEmail: emailFuncionarioSelecionado || null,
             preco: totalPreco, duracaoMinutos: totalDuracao,
             companyId: perfil?.companyId, status: 'pendente',
-            googleEventId: googleEventIdSalvar,
-            googleSyncPending: googleSyncPending
+            googleEventId: null,
+            googleSyncPending: true
         });
         
         // Reserva a chave imediatamente, sem depender do tempo de atualização do onSnapshot.
         agendamentosCriadosRef.current.add(chaveUnicaAgendamento);
-        toast.success("Agendamento efetuado!");
+        toast.success("Agendamento salvo! Sincronização com Google Agenda pendente.");
         await agendarNotificacaoPush(dataHoraAtendimento, tempoLembreteConfig, cliente);
       } catch (err) {
         toast.error("Erro ao salvar o agendamento localmente.");
