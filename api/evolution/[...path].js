@@ -101,22 +101,52 @@ export default async function handler(req, res) {
       upstreamBody = {
         enabled: true,
         url: process.env.WHATSAPP_WEBHOOK_URL,
-        webhookByEvents: false,
-        webhookBase64: false,
+        webhook_by_events: false,
+        webhook_base64: false,
         events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
       };
     }
 
     const url = apiBase + path;
-    const upstream = await fetch(url, {
-      method: req.method,
-      headers: {
-        apikey: apiKey,
-        ...(req.method !== 'GET' ? { 'Content-Type': 'application/json' } : {}),
-      },
-      ...(req.method !== 'GET' ? { body: JSON.stringify(upstreamBody || {}) } : {}),
-    });
-    const text = await upstream.text();
+    const headers = {
+      apikey: apiKey,
+      ...(req.method !== 'GET' ? { 'Content-Type': 'application/json' } : {}),
+    };
+    let upstream;
+    let text;
+    if (webhookMatch) {
+      const webhookPayloads = [
+        upstreamBody,
+        {
+          enabled: true,
+          url: process.env.WHATSAPP_WEBHOOK_URL,
+          webhookByEvents: false,
+          webhookBase64: false,
+          events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
+        },
+        {
+          webhook: {
+            enabled: true,
+            url: process.env.WHATSAPP_WEBHOOK_URL,
+            byEvents: false,
+            base64: false,
+            events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
+          },
+        },
+      ];
+      for (const webhookPayload of webhookPayloads) {
+        upstream = await fetch(url, { method: req.method, headers, body: JSON.stringify(webhookPayload) });
+        text = await upstream.text();
+        if (upstream.ok || ![400, 422].includes(upstream.status)) break;
+      }
+    } else {
+      upstream = await fetch(url, {
+        method: req.method,
+        headers,
+        ...(req.method !== 'GET' ? { body: JSON.stringify(upstreamBody || {}) } : {}),
+      });
+      text = await upstream.text();
+    }
     res.status(upstream.status);
     res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/json; charset=utf-8');
     return res.send(text || '{}');
