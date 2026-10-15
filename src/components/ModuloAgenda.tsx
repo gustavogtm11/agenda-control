@@ -33,6 +33,9 @@ interface Agendamento {
 }
 
 type DiaSemana = 'domingo' | 'segunda' | 'terca' | 'quarta' | 'quinta' | 'sexta' | 'sabado';
+
+// O token pode estar em qualquer um dos dois storages, conforme o fluxo de login Google usado.
+const obterTokenGoogle = () => localStorage.getItem('googleToken') || sessionStorage.getItem('googleToken');
 interface HorarioDia { ativo: boolean; inicio: string; fim: string; }
 type HorariosFuncionamento = Record<DiaSemana, HorarioDia>;
 
@@ -340,11 +343,12 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   }, [agendamentos, tempoLembreteConfig, perfil?.companyId]); 
 
   useEffect(() => {
-    const tokenGoogle = localStorage.getItem('googleToken');
-    if (!tokenGoogle || !perfil?.companyId) return;
+    if (!perfil?.companyId) return;
 
     const executarSincronizacao = async () => {
-      if (!navigator.onLine) return;
+      // O token é consultado a cada tentativa: ele pode ter sido gravado depois que o efeito iniciou.
+      const tokenGoogle = obterTokenGoogle();
+      if (!navigator.onLine || !tokenGoogle) return;
 
       const agendamentosPendentes = agendamentos.filter(a => a.googleSyncPending);
 
@@ -700,7 +704,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     const dataHoraIso = `${dataForm}T${horaForm}`;
     const dataHoraAtendimento = new Date(`${dataHoraIso}:00`);
 
-    const tokenGoogle = sessionStorage.getItem('googleToken');
+    const tokenGoogle = obterTokenGoogle();
     const start = new Date(`${dataHoraIso}:00`);
     const end = new Date(start.getTime() + (totalDuracao * 60 * 1000));
     
@@ -836,7 +840,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
       if (agenda.status === 'concluido') await efetuarReversao(agenda, true);
 
       if (agenda.googleEventId) {
-        const tokenGoogle = localStorage.getItem('googleToken');
+        const tokenGoogle = obterTokenGoogle();
         if (!tokenGoogle || !navigator.onLine) {
           armazenarExclusaoPendente(agenda.googleEventId);
         } else {
