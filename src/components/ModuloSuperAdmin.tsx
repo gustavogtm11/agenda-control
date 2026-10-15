@@ -144,11 +144,23 @@ export function ModuloSuperAdmin() {
         }
       }
 
+      let webhookConfigurado = false;
+      try {
+        await chamarEvolution(`/webhook/instance/update/${encodeURIComponent(empresaId)}`, 'POST', {});
+        webhookConfigurado = true;
+      } catch (webhookError) {
+        // A conexão/QR continua disponível mesmo quando falta configurar a URL pública do webhook.
+        console.warn('Não foi possível configurar o webhook automaticamente:', webhookError);
+      }
+
       setQrDados({ empresaId, empresaNome, base64: base64 || '', conectado });
+      const avisoWebhook = webhookConfigurado
+        ? ' O webhook de mensagens também foi configurado.'
+        : ' O QR está pronto, mas o webhook ainda precisa de uma URL HTTPS pública configurada no ambiente.';
       if (conectado) {
-        setMensagem(`O WhatsApp de ${empresaNome} já está conectado.`);
+        setMensagem(`O WhatsApp de ${empresaNome} já está conectado.${avisoWebhook}`);
       } else if (base64) {
-        setMensagem(`Instância de ${empresaNome} pronta. Escaneie o QR Code com o WhatsApp da empresa.`);
+        setMensagem(`Instância de ${empresaNome} pronta. Escaneie o QR Code com o WhatsApp da empresa.${avisoWebhook}`);
       } else {
         setErro('A instância foi consultada, mas a API não retornou QR Code. Tente atualizar em alguns segundos.');
       }
