@@ -225,6 +225,14 @@ export function Painel({ perfil }: PainelProps) {
                   >
                     <span>⚙️</span> {menuExpandido && <span style={{ animation: 'fadeIn 0.2s ease' }}>Configurações</span>}
                   </button>
+                  <button
+                    style={estiloBotaoMenu('automacao')}
+                    onClick={() => mudarAba('automacao')}
+                    onMouseOver={(e) => abaAtiva !== 'automacao' && (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.05)')}
+                    onMouseOut={(e) => abaAtiva !== 'automacao' && (e.currentTarget.style.backgroundColor = 'transparent')}
+                  >
+                    <span>💬</span> {menuExpandido && <span style={{ animation: 'fadeIn 0.2s ease' }}>WhatsApp</span>}
+                  </button>
                 </>
               )}
             </nav>
