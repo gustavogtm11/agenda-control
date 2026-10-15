@@ -49,6 +49,28 @@ O proxy local usa a chave configurada no `.env.local` e não passa pelo endpoint
 
 O `.env.local` deve apontar o frontend para um projeto Firebase de teste se você quiser isolamento real. Executar a aplicação local não impede gravações no Firebase de produção quando as variáveis `VITE_FIREBASE_*` apontam para o projeto de produção.
 
+## Fluxo automatizado incluído
+
+Com a automação ativada e o webhook sincronizado, o atendimento usa este menu numérico:
+
+1. Agendar horário: escolhe serviço, data e horário; o sistema consulta o expediente, almoço, bloqueios e agendamentos existentes antes de reservar.
+2. Cancelar agendamento: lista os próximos agendamentos vinculados ao telefone que iniciou a conversa e cancela somente após validar empresa e telefone.
+3. Consultar horários: mostra os próximos agendamentos vinculados ao telefone.
+4. Falar com atendente: pausa as respostas automáticas daquela conversa; o cliente pode digitar `MENU` para retomar o robô.
+
+Os textos são editáveis no módulo WhatsApp. As variáveis aceitas são `{primeiroNome}`, `{data}`, `{hora}`, `{horario}`, `{servico}`, `{profissional}` e `{valor}`. O agendamento manual do módulo Agenda continua independente do robô.
+
+## Teste recomendado
+
+1. Faça login com uma empresa de teste já cadastrada no Firestore.
+2. Conecte uma instância WhatsApp exclusiva de teste.
+3. Ative o robô e salve os textos.
+4. Configure `WHATSAPP_WEBHOOK_URL` com a URL HTTPS da implantação Preview desta branch e o mesmo segredo em `WHATSAPP_WEBHOOK_SECRET`.
+5. Sincronize o webhook. O endpoint da Evolution usado é `POST /webhook/set/{instance}`.
+6. Envie uma mensagem do número de teste e percorra as opções 1, 2, 3 e 4. Confirme também que uma segunda mensagem duplicada não cria uma segunda reserva.
+
+Não considere a funcionalidade validada até testar o fluxo real com o WhatsApp, o Firestore e a agenda de teste. O ambiente de edição não executou o build nem um teste ponta a ponta.
+
 ## Isolamento obrigatório
 
 - Use um projeto Firebase de teste ou uma empresa de teste com dados próprios.
