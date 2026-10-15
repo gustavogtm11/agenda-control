@@ -358,7 +358,12 @@ async function cancelarAgendamentoWhatsApp(companyId, telefone, agendamentoId) {
 }
 async function processarMensagem({ companyId, telefone, nomeCliente, mensagem, estadoRef, config }) {
   const estadoSnap = await estadoRef.get();
-  let estado = estadoSnap.exists ? estadoSnap.data() : { passo: 'INICIO' };
+  if (!estadoSnap.exists) {
+    // A primeira mensagem sempre recebe boas-vindas e o menu, mesmo que o cliente envie "1".
+    await responderInicio(telefone, companyId, nomeCliente, config, estadoRef);
+    return;
+  }
+  let estado = estadoSnap.data();
   if (estado.dataUltimaInteracao && estado.dataUltimaInteracao !== hojeEmRecife()) estado = { passo: 'INICIO' };
   const entrada = String(mensagem || '').trim();
   const entradaNormalizada = entrada.toLocaleLowerCase('pt-BR');
