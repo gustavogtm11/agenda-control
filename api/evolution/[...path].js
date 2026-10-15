@@ -99,8 +99,11 @@ export default async function handler(req, res) {
         return sendJson(res, 503, { error: 'Configure WHATSAPP_WEBHOOK_URL no ambiente do servidor antes de sincronizar o webhook.' });
       }
       upstreamBody = {
-        webhookUrl: process.env.WHATSAPP_WEBHOOK_URL,
-        webhookEvents: ['messages.upsert', 'messages.update'],
+        enabled: true,
+        url: process.env.WHATSAPP_WEBHOOK_URL,
+        webhookByEvents: false,
+        webhookBase64: false,
+        events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
       };
     }
 
