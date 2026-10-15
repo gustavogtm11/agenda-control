@@ -223,8 +223,8 @@ export function ModuloAutomacaoWhatsApp({ perfil }: ModuloAutomacaoProps) {
     background: '#fff',
     color: '#334155',
     cursor: 'pointer',
-    fontWeight: 700 as const,
-  };
+    fontWeight: 700,
+  } as const;
 
   if (!perfil?.companyId) {
     return <div style={{ padding: 24 }}>Não foi possível identificar a empresa deste usuário.</div>;
