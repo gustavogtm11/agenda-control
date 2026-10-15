@@ -1,7 +1,7 @@
 import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHash } from 'node:crypto';
 
 function initializeFirebaseAdmin() {
   if (getApps().length) return;
@@ -109,16 +109,15 @@ export default async function handler(req, res) {
       }
 
       const secretRef = db.collection('whatsapp_webhook_secrets').doc(instanceName);
-      const secretSnapshot = await secretRef.get();
-      const webhookSecret = secretSnapshot.exists && typeof secretSnapshot.data()?.secret === 'string'
-        ? secretSnapshot.data().secret
-        : randomBytes(32).toString('hex');
+      // O token em texto puro só existe durante esta requisição. No Firestore fica apenas o hash.
+      const webhookSecret = randomBytes(32).toString('hex');
+      const secretHash = createHash('sha256').update(webhookSecret).digest('hex');
 
       await secretRef.set({
-        secret: webhookSecret,
+        secretHash,
         instanceName,
         updatedAt: new Date().toISOString(),
-      }, { merge: true });
+      });
 
       webhookUrl = webhookBaseUrl + '?secret=' + encodeURIComponent(webhookSecret);
       upstreamBody = {
