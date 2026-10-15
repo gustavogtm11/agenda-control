@@ -264,7 +264,18 @@ async function criarAgendamentoSeDisponivel(companyId, telefone, nomeCliente, es
 
   await db().runTransaction(async (transaction) => {
     const lockSnapshots = await Promise.all(lockRefs.map((ref) => transaction.get(ref)));
-    if (lockSnapshots.some((snap) => snap.exists)) {
+    const lockOwners = await Promise.all(lockSnapshots.map((snap) => {
+      const dados = snap.exists ? snap.data() : null;
+      return dados?.agendamentoId ? transaction.get(agendamentosRef.doc(String(dados.agendamentoId))) : Promise.resolve(null);
+    }));
+    const existeBloqueioAtivo = lockSnapshots.some((lockSnap, index) => {
+      if (!lockSnap.exists) return false;
+      const ownerSnap = lockOwners[index];
+      if (!ownerSnap?.exists) return false;
+      const owner = ownerSnap.data();
+      return agendamentoAtivo(owner) && Array.isArray(owner.slotLockIds) && owner.slotLockIds.includes(lockRefs[index].id);
+    });
+    if (existeBloqueioAtivo) {
       throw new Error('Esse horário acabou de ser reservado. Vou consultar novamente as opções.');
     }
     const snapshot = await transaction.get(agendamentosRef.where('companyId', '==', companyId));
@@ -294,7 +305,7 @@ async function criarAgendamentoSeDisponivel(companyId, telefone, nomeCliente, es
       slotLockIds: lockIds,
       criadoEm: FieldValue.serverTimestamp(),
     });
-    lockRefs.forEach((ref) => transaction.create(ref, {
+    lockRefs.forEach((ref) => transaction.set(ref, {
       companyId, agendamentoId: agendamentoRef.id, dataHora: dataIso + 'T' + hora,
       criadoEm: FieldValue.serverTimestamp(),
     }));
