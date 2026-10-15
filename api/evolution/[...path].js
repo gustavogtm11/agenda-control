@@ -1,6 +1,6 @@
-const { initializeApp, getApps, cert } = require('firebase-admin/app');
-const { getAuth } = require('firebase-admin/auth');
-const { getFirestore } = require('firebase-admin/firestore');
+import { initializeApp, getApps, cert } from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
+import { getFirestore } from 'firebase-admin/firestore';
 
 function initializeFirebaseAdmin() {
   if (getApps().length) return;
@@ -13,7 +13,7 @@ function sendJson(res, status, body) {
   res.status(status).setHeader('Content-Type', 'application/json; charset=utf-8').send(JSON.stringify(body));
 }
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   if (!['GET', 'POST', 'PUT', 'DELETE'].includes(req.method || '')) {
     res.setHeader('Allow', 'GET, POST, PUT, DELETE');
     return sendJson(res, 405, { error: 'Método não permitido.' });
