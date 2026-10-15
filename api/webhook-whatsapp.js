@@ -326,7 +326,7 @@ function telefoneDoAgendamento(ag) {
 async function listarAgendamentosDoCliente(companyId, telefone) {
   const todos = await carregarAgendamentos(companyId);
   return todos
-    .filter((ag) => telefoneDoAgendamento(ag) === telefone && agendamentoAtivo(ag) && String(ag.dataHora || '') >= agoraRecifeIso())
+    .filter((ag) => telefoneDoAgendamento(ag) === telefone && agendamentoAtivo(ag) && String(ag.dataHora || '') >= agoraRecifeIso() && (ag.origem === 'whatsapp' || Boolean(ag.googleEventId) || ag.googleSyncPending !== true))
     .sort((a, b) => String(a.dataHora).localeCompare(String(b.dataHora)));
 }
 async function cancelarAgendamentoWhatsApp(companyId, telefone, agendamentoId) {
@@ -341,7 +341,18 @@ async function cancelarAgendamentoWhatsApp(companyId, telefone, agendamentoId) {
     const lockRefs = (Array.isArray(ag.slotLockIds) ? ag.slotLockIds : [])
       .map((id) => db().collection('whatsapp_slot_locks').doc(String(id)));
     const lockSnapshots = await Promise.all(lockRefs.map((lockRef) => transaction.get(lockRef)));
-    transaction.delete(ref);
+    if (ag.googleEventId) {
+      // O navegador do profissional possui o token OAuth do Google Calendar.
+      // Mantemos o registro como cancelado até o módulo Agenda remover o evento remoto.
+      transaction.update(ref, {
+        status: 'cancelado',
+        cancelamentoPendenteGoogle: true,
+        canceladoPor: 'whatsapp',
+        canceladoEm: FieldValue.serverTimestamp(),
+      });
+    } else {
+      transaction.delete(ref);
+    }
     lockRefs.forEach((lockRef, index) => { if (lockSnapshots[index].exists) transaction.delete(lockRef); });
   });
 }
