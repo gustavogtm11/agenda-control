@@ -653,7 +653,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
         return;
     }
 
-    let textoFinal = "Olá! Aqui estão nuestros horários disponíveis:\n\n";
+    let textoFinal = "Olá! Aqui estão nossos horários disponíveis:\n\n";
     let dataAtual = new Date(inicio);
     const nomesDias = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
 
@@ -674,7 +674,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
         dataAtual.setDate(dataAtual.getDate() + 1);
     }
     
-    if (textoFinal === "Olá! Aqui estão nuestros horários disponíveis:\n\n") {
+    if (textoFinal === "Olá! Aqui estão nossos horários disponíveis:\n\n") {
         textoFinal = "Não há horários disponíveis no período selecionado ou a empresa está fechada nesses dias.";
     }
 
