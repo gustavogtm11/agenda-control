@@ -79,6 +79,13 @@ module.exports = async function handler(req, res) {
       return sendJson(res, 404, { error: 'Rota Evolution não permitida por este proxy.' });
     }
 
+    if (instanceName) {
+      const empresaSnap = await db.collection('empresas').doc(instanceName).get();
+      if (!empresaSnap.exists) {
+        return sendJson(res, 404, { error: 'Empresa não encontrada. Cadastre a empresa antes de conectar o WhatsApp.' });
+      }
+    }
+
     let upstreamBody = req.body;
     if (createRoute) {
       upstreamBody = {
@@ -92,13 +99,8 @@ module.exports = async function handler(req, res) {
         return sendJson(res, 503, { error: 'Configure WHATSAPP_WEBHOOK_URL no ambiente do servidor antes de sincronizar o webhook.' });
       }
       upstreamBody = {
-        webhook: {
-          enabled: true,
-          url: process.env.WHATSAPP_WEBHOOK_URL,
-          webhookByEvents: false,
-          webhookBase64: false,
-          events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
-        },
+        webhookUrl: process.env.WHATSAPP_WEBHOOK_URL,
+        webhookEvents: ['messages.upsert', 'messages.update'],
       };
     }
 
