@@ -99,12 +99,12 @@ export default async function handler(req, res) {
     if (webhookMatch) {
       // Em deployments Vercel, usar o domínio desta implantação mantém o webhook
       // apontado para a branch/preview que está sendo testada, não para produção.
-      const deploymentHost = String(process.env.VERCEL_URL || '').replace(/^https?:\\/\\//, '').replace(/\\/$/, '');
+      const deploymentHost = String(process.env.VERCEL_URL || '').replace(/^https?:\/\//, '').replace(/\/$/, '');
       const configuredBase = String(process.env.WHATSAPP_WEBHOOK_BASE_URL || '').trim();
       const webhookBaseUrl = deploymentHost
         ? 'https://' + deploymentHost + '/api/webhook-whatsapp'
-        : configuredBase.replace(/\\/$/, '');
-      if (!webhookBaseUrl || !/^https:\\/\\//i.test(webhookBaseUrl)) {
+        : configuredBase.replace(/\/$/, '');
+      if (!webhookBaseUrl || !/^https:\/\//i.test(webhookBaseUrl)) {
         return sendJson(res, 503, { error: 'Não foi possível determinar a URL HTTPS desta implantação para o webhook.' });
       }
 
