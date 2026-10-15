@@ -70,11 +70,12 @@ export default defineConfig(({ mode }) => {
               'Content-Type': 'application/json',
             };
             const eventos = ['MESSAGES_UPSERT', 'MESSAGES_UPDATE'];
-            // Evolution v2 exige o envelope "webhook"; versões antigas aceitam o formato plano.
+            // A instalação configurada é Evolution 1.8.2: tentar primeiro o formato plano
+            // documentado para essa geração; o envelope aninhado fica como fallback para v2.
             const payloads = [
-              { webhook: { enabled: true, url: env.WHATSAPP_WEBHOOK_URL, byEvents: false, base64: false, events: eventos } },
               { enabled: true, url: env.WHATSAPP_WEBHOOK_URL, webhookByEvents: false, webhookBase64: false, events: eventos },
               { enabled: true, url: env.WHATSAPP_WEBHOOK_URL, webhook_by_events: false, webhook_base64: false, events: eventos },
+              { webhook: { enabled: true, url: env.WHATSAPP_WEBHOOK_URL, byEvents: false, base64: false, events: eventos } },
             ];
             let upstream = await fetch(targetUrl, {
               method: 'POST',
