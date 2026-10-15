@@ -35,9 +35,16 @@ Configure no projeto Vercel, sem commitar valores:
 - `EVOLUTION_API_URL`: URL base do serviço Evolution.
 - `EVOLUTION_API_KEY`: chave da Evolution guardada no servidor.
 - `FIREBASE_SERVICE_ACCOUNT` ou `FIREBASE_SERVICE_ACCOUNT_JSON`: JSON da conta de serviço do Firebase Admin.
-- `WHATSAPP_WEBHOOK_URL`: URL HTTPS pública do endpoint `/api/webhook-whatsapp`.
+- `WHATSAPP_WEBHOOK_URL`: URL HTTPS pública do endpoint `/api/webhook-whatsapp?secret=SEU_SEGREDO`.
+- `WHATSAPP_WEBHOOK_SECRET`: o mesmo segredo aleatório usado no parâmetro `secret` da URL. O webhook recusa chamadas sem esse segredo.
 
 A rota `api/evolution/[...path].js` valida o token Firebase e o perfil Firestore antes de permitir as rotas limitadas de criação/conexão da instância. Em desenvolvimento local, o proxy Vite é destinado apenas ao teste local e não substitui as verificações do endpoint de produção.
+
+## Atenção antes de testar
+
+O proxy local usa a chave configurada no `.env.local` e não passa pelo endpoint autenticado da Vercel. Por isso, rode a aplicação somente no seu computador e use uma chave descartável/exclusiva para a instância de teste. Nunca coloque a chave em variáveis `VITE_*` nem a envie ao GitHub.
+
+O `.env.local` deve apontar o frontend para um projeto Firebase de teste se você quiser isolamento real. Executar a aplicação local não impede gravações no Firebase de produção quando as variáveis `VITE_FIREBASE_*` apontam para o projeto de produção.
 
 ## Isolamento obrigatório
 
