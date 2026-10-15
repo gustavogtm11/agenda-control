@@ -1,6 +1,6 @@
 // src/components/ModuloSuperAdmin.tsx
 
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { auth, db } from '../config/firebase';
 import {
   collection,
