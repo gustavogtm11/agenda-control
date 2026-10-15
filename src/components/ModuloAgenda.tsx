@@ -703,7 +703,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     const duplicado = !idEmEdicao && agendamentos.some(a => {
       const servicosExistentes = [...(a.servicoIds || (a.servicoId ? [a.servicoId] : []))].sort().join('|');
       const nomeExistente = a.clienteNome.trim().replace(/\s+/g, ' ').toLocaleLowerCase('pt-BR');
-      return a.dataHora === `${dataForm}T`${horaForm}`
+      return a.dataHora === dataForm + 'T' + horaForm
         && nomeExistente === nomeClienteNormalizado
         && servicosExistentes === chaveServicosSelecionados
         && (a.funcionarioEmail || '') === (emailFuncionarioSelecionado || '');
