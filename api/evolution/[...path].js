@@ -117,6 +117,20 @@ export default async function handler(req, res) {
     if (webhookMatch) {
       const webhookPayloads = [
         {
+          enabled: true,
+          url: process.env.WHATSAPP_WEBHOOK_URL,
+          webhookByEvents: false,
+          webhookBase64: false,
+          events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
+        },
+        {
+          enabled: true,
+          url: process.env.WHATSAPP_WEBHOOK_URL,
+          webhook_by_events: false,
+          webhook_base64: false,
+          events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
+        },
+        {
           webhook: {
             enabled: true,
             url: process.env.WHATSAPP_WEBHOOK_URL,
@@ -125,14 +139,6 @@ export default async function handler(req, res) {
             events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
           },
         },
-        {
-          enabled: true,
-          url: process.env.WHATSAPP_WEBHOOK_URL,
-          webhookByEvents: false,
-          webhookBase64: false,
-          events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
-        },
-        upstreamBody,
       ];
       for (const webhookPayload of webhookPayloads) {
         upstream = await fetch(url, { method: req.method, headers, body: JSON.stringify(webhookPayload) });
