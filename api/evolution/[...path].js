@@ -1,6 +1,7 @@
 import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
+import { randomBytes } from 'node:crypto';
 
 function initializeFirebaseAdmin() {
   if (getApps().length) return;
@@ -94,13 +95,35 @@ export default async function handler(req, res) {
         integration: 'WHATSAPP-BAILEYS',
       };
     }
+    let webhookUrl = '';
     if (webhookMatch) {
-      if (!process.env.WHATSAPP_WEBHOOK_URL) {
-        return sendJson(res, 503, { error: 'Configure WHATSAPP_WEBHOOK_URL no ambiente do servidor antes de sincronizar o webhook.' });
+      // Em deployments Vercel, usar o domínio desta implantação mantém o webhook
+      // apontado para a branch/preview que está sendo testada, não para produção.
+      const deploymentHost = String(process.env.VERCEL_URL || '').replace(/^https?:\\/\\//, '').replace(/\\/$/, '');
+      const configuredBase = String(process.env.WHATSAPP_WEBHOOK_BASE_URL || '').trim();
+      const webhookBaseUrl = deploymentHost
+        ? 'https://' + deploymentHost + '/api/webhook-whatsapp'
+        : configuredBase.replace(/\\/$/, '');
+      if (!webhookBaseUrl || !/^https:\\/\\//i.test(webhookBaseUrl)) {
+        return sendJson(res, 503, { error: 'Não foi possível determinar a URL HTTPS desta implantação para o webhook.' });
       }
+
+      const secretRef = db.collection('whatsapp_webhook_secrets').doc(instanceName);
+      const secretSnapshot = await secretRef.get();
+      const webhookSecret = secretSnapshot.exists && typeof secretSnapshot.data()?.secret === 'string'
+        ? secretSnapshot.data().secret
+        : randomBytes(32).toString('hex');
+
+      await secretRef.set({
+        secret: webhookSecret,
+        instanceName,
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+
+      webhookUrl = webhookBaseUrl + '?secret=' + encodeURIComponent(webhookSecret);
       upstreamBody = {
         enabled: true,
-        url: process.env.WHATSAPP_WEBHOOK_URL,
+        url: webhookUrl,
         webhook_by_events: false,
         webhook_base64: false,
         events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
@@ -118,14 +141,14 @@ export default async function handler(req, res) {
       const webhookPayloads = [
         {
           enabled: true,
-          url: process.env.WHATSAPP_WEBHOOK_URL,
+          url: webhookUrl,
           webhookByEvents: false,
           webhookBase64: false,
           events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
         },
         {
           enabled: true,
-          url: process.env.WHATSAPP_WEBHOOK_URL,
+          url: webhookUrl,
           webhook_by_events: false,
           webhook_base64: false,
           events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
@@ -133,7 +156,7 @@ export default async function handler(req, res) {
         {
           webhook: {
             enabled: true,
-            url: process.env.WHATSAPP_WEBHOOK_URL,
+            url: webhookUrl,
             byEvents: false,
             base64: false,
             events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
