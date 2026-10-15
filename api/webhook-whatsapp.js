@@ -105,13 +105,21 @@ async function enviarMensagem(telefone, texto, instancia) {
   const baseUrl = String(process.env.EVOLUTION_API_URL || '').replace(/\/$/, '');
   const apiKey = process.env.EVOLUTION_API_KEY;
   if (!baseUrl || !apiKey) throw new Error('Evolution API não configurada no servidor.');
-  const response = await fetch(baseUrl + '/message/sendText/' + encodeURIComponent(instancia), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', apikey: apiKey },
-    body: JSON.stringify({ number: telefone, text: texto }),
-  });
+  const url = baseUrl + '/message/sendText/' + encodeURIComponent(instancia);
+  const headers = { 'Content-Type': 'application/json', apikey: apiKey };
+  // A instalação informada pelo projeto é Evolution 1.8.2 (v1 usa textMessage.text).
+  // O segundo formato cobre servidores que tenham sido atualizados para a API v2.
+  const payloads = [
+    { number: telefone, options: { delay: 300, presence: 'composing' }, textMessage: { text: texto } },
+    { number: telefone, text: texto, delay: 300, linkPreview: false },
+  ];
+  let response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(payloads[0]) });
+  let detalhe = await response.text().catch(() => '');
+  if (!response.ok && [400, 422].includes(response.status)) {
+    response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(payloads[1]) });
+    detalhe = await response.text().catch(() => '');
+  }
   if (!response.ok) {
-    const detalhe = await response.text().catch(() => '');
     throw new Error('Evolution recusou o envio (HTTP ' + response.status + '): ' + detalhe.slice(0, 300));
   }
 }
