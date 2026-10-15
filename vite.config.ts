@@ -64,21 +64,28 @@ export default defineConfig(({ mode }) => {
             const chunks = [];
             for await (const chunk of req) chunks.push(Buffer.from(chunk));
             const target = String(env.EVOLUTION_API_URL || 'https://evolution-api-free-test.onrender.com').replace(/\/$/, '');
-            const upstream = await fetch(`${target}/webhook/set/${encodeURIComponent(instanceName)}`, {
-              method: 'POST',
-              headers: {
-                apikey: env.EVOLUTION_API_KEY || '',
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                enabled: true,
-                url: env.WHATSAPP_WEBHOOK_URL,
-                webhookByEvents: false,
-                webhookBase64: false,
-                events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
-              }),
-            });
-            const responseText = await upstream.text();
+            const targetUrl = `${target}/webhook/set/${encodeURIComponent(instanceName)}`;
+            const headers = {
+              apikey: env.EVOLUTION_API_KEY || '',
+              'Content-Type': 'application/json',
+            };
+            const eventos = ['MESSAGES_UPSERT', 'MESSAGES_UPDATE'];
+            const payloads = [
+              { enabled: true, url: env.WHATSAPP_WEBHOOK_URL, webhook_by_events: false, webhook_base64: false, events: eventos },
+              { enabled: true, url: env.WHATSAPP_WEBHOOK_URL, webhookByEvents: false, webhookBase64: false, events: eventos },
+              { webhook: { enabled: true, url: env.WHATSAPP_WEBHOOK_URL, byEvents: false, base64: false, events: eventos } },
+            ];
+            let upstream;
+            let responseText = '';
+            for (const payload of payloads) {
+              upstream = await fetch(targetUrl, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(payload),
+              });
+              responseText = await upstream.text();
+              if (upstream.ok || ![400, 422].includes(upstream.status)) break;
+            }
             res.statusCode = upstream.status;
             res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/json; charset=utf-8');
             res.end(responseText || '{}');
