@@ -1,6 +1,6 @@
 // src/components/ModuloAgenda.tsx
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { db, auth } from '../config/firebase'; 
 import { signOut } from 'firebase/auth'; 
 import { collection, addDoc, updateDoc, deleteDoc, query, where, onSnapshot, orderBy, doc, getDocs, getDoc } from 'firebase/firestore';
@@ -71,6 +71,8 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   const [tempoLembreteConfig, setTempoLembreteConfig] = useState<number>(30); 
 
   const [mostrarFormulario, setMostrarFormulario] = useState(false);
+  const salvandoAgendamentoRef = useRef(false);
+  const [salvandoAgendamento, setSalvandoAgendamento] = useState(false);
 
   const [idEmEdicao, setIdEmEdicao] = useState<string | null>(null);
   const [cliente, setCliente] = useState('');
@@ -678,6 +680,12 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
   async function lidarComAgendamento(e: React.FormEvent) {
     e.preventDefault();
+    // Bloqueio síncrono: impede dois submits antes mesmo do React redesenhar a tela.
+    if (salvandoAgendamentoRef.current) return;
+    salvandoAgendamentoRef.current = true;
+    setSalvandoAgendamento(true);
+
+    try {
     
     if (diaEstaBloqueado) {
       toast.error("❌ Este dia está bloqueado/fechado. Não é permitido realizar agendamentos.");
@@ -686,6 +694,22 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
     if (!cliente || !dataForm || !horaForm || servicoIdsSelecionados.length === 0 || !perfil?.companyId) {
       toast.error("Preencha todos os campos obrigatórios (incluindo pelo menos um serviço)!");
+      return;
+    }
+
+    // Também bloqueia repetir exatamente o mesmo agendamento se a primeira gravação já apareceu na lista.
+    const chaveServicosSelecionados = [...servicoIdsSelecionados].sort().join('|');
+    const nomeClienteNormalizado = cliente.trim().replace(/\s+/g, ' ').toLocaleLowerCase('pt-BR');
+    const duplicado = !idEmEdicao && agendamentos.some(a => {
+      const servicosExistentes = [...(a.servicoIds || (a.servicoId ? [a.servicoId] : []))].sort().join('|');
+      const nomeExistente = a.clienteNome.trim().replace(/\s+/g, ' ').toLocaleLowerCase('pt-BR');
+      return a.dataHora === `${dataForm}T`${horaForm}`
+        && nomeExistente === nomeClienteNormalizado
+        && servicosExistentes === chaveServicosSelecionados
+        && (a.funcionarioEmail || '') === (emailFuncionarioSelecionado || '');
+    });
+    if (duplicado) {
+      toast.error("Este agendamento já existe. Não foi criado outro.");
       return;
     }
 
@@ -810,6 +834,10 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     setCliente(''); setServicoIdsSelecionados([]); setEmailFuncionarioSelecionado(''); setIdEmEdicao(null); setIsEncaixeAtivo(false);
     setDataVisaoDiaria(dataForm); 
     setMostrarFormulario(false);
+    } finally {
+      salvandoAgendamentoRef.current = false;
+      setSalvandoAgendamento(false);
+    }
   }
 
   function prepararEdicao(agenda: Agendamento) {
@@ -1044,8 +1072,8 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
               </label>
             </div>
             
-            <button type="submit" disabled={diaEstaBloqueado} style={{ padding: '12px 20px', backgroundColor: diaEstaBloqueado ? '#95a5a6' : (idEmEdicao ? '#e67e22' : '#2980b9'), color: 'white', border: 'none', cursor: diaEstaBloqueado ? 'not-allowed' : 'pointer', borderRadius: '6px', fontWeight: 'bold', width: '100%' }}>
-              {diaEstaBloqueado ? '🚫 Agendamentos Bloqueados para esta Data' : (idEmEdicao ? 'Atualizar Agendamento' : 'Salvar Agendamento')}
+            <button type="submit" disabled={diaEstaBloqueado || salvandoAgendamento} style={{ padding: '12px 20px', backgroundColor: diaEstaBloqueado ? '#95a5a6' : (idEmEdicao ? '#e67e22' : '#2980b9'), color: 'white', border: 'none', cursor: diaEstaBloqueado ? 'not-allowed' : 'pointer', borderRadius: '6px', fontWeight: 'bold', width: '100%' }}>
+              {diaEstaBloqueado ? '🚫 Agendamentos Bloqueados para esta Data' : (salvandoAgendamento ? 'Salvando...' : (idEmEdicao ? 'Atualizar Agendamento' : 'Salvar Agendamento'))}
             </button>
             {idEmEdicao && (
               <button type="button" onClick={cancelarEdicao} style={{ padding: '12px 20px', backgroundColor: 'var(--text-secundario)', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', width: '100%' }}>Cancelar</button>
