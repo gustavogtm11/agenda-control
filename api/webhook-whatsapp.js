@@ -98,14 +98,13 @@ async function carregarServicos(companyId) {
 }
 
 async function carregarAgendamentos(companyId, dataIso) {
-  const inicio = `${dataIso}T00:00`;
-  const fim = `${dataIso}T23:59`;
+  // Consulta apenas a empresa e filtra a data em memória para não exigir índice composto novo.
   const snapshot = await db().collection('agendamentos')
     .where('companyId', '==', companyId)
-    .where('dataHora', '>=', inicio)
-    .where('dataHora', '<=', fim)
     .get();
-  return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+  return snapshot.docs
+    .map((item) => ({ id: item.id, ...item.data() }))
+    .filter((item) => typeof item.dataHora === 'string' && item.dataHora.startsWith(dataIso));
 }
 
 async function carregarEmpresa(companyId) {
