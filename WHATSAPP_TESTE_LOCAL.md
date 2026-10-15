@@ -15,6 +15,7 @@ VITE_FIREBASE_APP_ID=...
 
 EVOLUTION_API_URL=https://evolution-api-free-test.onrender.com
 EVOLUTION_API_KEY=CHAVE_EXCLUSIVA_DE_TESTE
+WHATSAPP_WEBHOOK_URL=https://URL-PREVIEW-VERCEL/api/webhook-whatsapp?secret=SEGREDO_ALEATORIO
 ```
 
 A chave da Evolution **não** deve ter prefixo `VITE_`, pois isso a colocaria no JavaScript entregue ao navegador. O proxy do Vite usa a chave somente no servidor de desenvolvimento.
@@ -37,6 +38,8 @@ Configure no projeto Vercel, sem commitar valores:
 - `FIREBASE_SERVICE_ACCOUNT` ou `FIREBASE_SERVICE_ACCOUNT_JSON`: JSON da conta de serviço do Firebase Admin.
 - `WHATSAPP_WEBHOOK_URL`: URL HTTPS pública do endpoint `/api/webhook-whatsapp?secret=SEU_SEGREDO`.
 - `WHATSAPP_WEBHOOK_SECRET`: o mesmo segredo aleatório usado no parâmetro `secret` da URL. O webhook recusa chamadas sem esse segredo.
+
+Para teste local, configure também `WHATSAPP_WEBHOOK_URL` no `.env.local` com a URL HTTPS de uma implantação Preview desta branch na Vercel. Essa URL deve terminar em `/api/webhook-whatsapp?secret=...`; configure o mesmo valor de segredo em `WHATSAPP_WEBHOOK_SECRET` no ambiente Preview. Não use o domínio de produção para esse teste.
 
 A rota `api/evolution/[...path].js` valida o token Firebase e o perfil Firestore antes de permitir as rotas limitadas de criação/conexão da instância. Em desenvolvimento local, o proxy Vite é destinado apenas ao teste local e não substitui as verificações do endpoint de produção.
 
