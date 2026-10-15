@@ -58,7 +58,7 @@ Com a automação ativada e o webhook sincronizado, o atendimento usa este menu 
 3. Consultar horários: mostra os próximos agendamentos vinculados ao telefone.
 4. Falar com atendente: pausa as respostas automáticas daquela conversa; o cliente pode digitar `MENU` para retomar o robô.
 
-Os textos são editáveis no módulo WhatsApp. As variáveis aceitas são `{primeiroNome}`, `{data}`, `{hora}`, `{horario}`, `{servico}`, `{profissional}` e `{valor}`. O agendamento manual do módulo Agenda continua independente do robô.
+Os textos são editáveis no módulo WhatsApp. No agendamento manual, o campo opcional de WhatsApp do cliente permite vincular o contato para consulta/cancelamento automático. Os eventos do Google Calendar são removidos pelo módulo Agenda quando ele estiver aberto com a sessão Google válida; se o navegador estiver fechado ou sem conexão, a sincronização fica pendente até a próxima abertura com login Google. As variáveis aceitas são `{primeiroNome}`, `{data}`, `{hora}`, `{horario}`, `{servico}`, `{profissional}` e `{valor}`. O agendamento manual do módulo Agenda continua independente do robô.
 
 ## Teste recomendado
 
