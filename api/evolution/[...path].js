@@ -53,7 +53,7 @@ export default async function handler(req, res) {
     let instanceName = '';
     const createRoute = path === '/instance/create' && req.method === 'POST';
     const connectMatch = path.match(/^\/instance\/(connect|connectionState)\/([a-zA-Z0-9_-]{1,100})$/);
-    const webhookMatch = path.match(/^\\/webhook\\/set\\/([a-zA-Z0-9_-]{1,100})$/);
+    const webhookMatch = path.match(/^\/webhook\/set\/([a-zA-Z0-9_-]{1,100})$/);
 
     if (createRoute) {
       instanceName = String(req.body?.instanceName || '');
