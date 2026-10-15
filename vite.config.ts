@@ -49,7 +49,7 @@ export default defineConfig(({ mode }) => {
       configureServer(server) {
         // Intercepta a configuração do webhook para injetar a URL somente no servidor local.
         // Assim o segredo do webhook e a chave Evolution não entram no bundle React.
-        server.middlewares.use('/api/evolution/webhook/instance/update', async (req, res, next) => {
+        server.middlewares.use('/api/evolution/webhook/set', async (req, res, next) => {
           if (req.method !== 'POST') return next();
           const instanceName = String(req.url || '').split('?')[0].replace(/^\/+/, '');
           if (!/^[a-zA-Z0-9_-]{1,100}$/.test(instanceName)) return next();
@@ -64,15 +64,18 @@ export default defineConfig(({ mode }) => {
             const chunks = [];
             for await (const chunk of req) chunks.push(Buffer.from(chunk));
             const target = String(env.EVOLUTION_API_URL || 'https://evolution-api-free-test.onrender.com').replace(/\/$/, '');
-            const upstream = await fetch(`${target}/webhook/instance/update/${encodeURIComponent(instanceName)}`, {
+            const upstream = await fetch(`${target}/webhook/set/${encodeURIComponent(instanceName)}`, {
               method: 'POST',
               headers: {
                 apikey: env.EVOLUTION_API_KEY || '',
                 'Content-Type': 'application/json',
               },
               body: JSON.stringify({
-                webhookUrl: env.WHATSAPP_WEBHOOK_URL,
-                webhookEvents: ['messages.upsert', 'messages.update'],
+                enabled: true,
+                url: env.WHATSAPP_WEBHOOK_URL,
+                webhookByEvents: false,
+                webhookBase64: false,
+                events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
               }),
             });
             const responseText = await upstream.text();
