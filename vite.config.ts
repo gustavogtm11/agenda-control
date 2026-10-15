@@ -75,16 +75,20 @@ export default defineConfig(({ mode }) => {
               { enabled: true, url: env.WHATSAPP_WEBHOOK_URL, webhookByEvents: false, webhookBase64: false, events: eventos },
               { webhook: { enabled: true, url: env.WHATSAPP_WEBHOOK_URL, byEvents: false, base64: false, events: eventos } },
             ];
-            let upstream;
-            let responseText = '';
-            for (const payload of payloads) {
+            let upstream = await fetch(targetUrl, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify(payloads[0]),
+            });
+            let responseText = await upstream.text();
+            for (const payload of payloads.slice(1)) {
+              if (upstream.ok || ![400, 422].includes(upstream.status)) break;
               upstream = await fetch(targetUrl, {
                 method: 'POST',
                 headers,
                 body: JSON.stringify(payload),
               });
               responseText = await upstream.text();
-              if (upstream.ok || ![400, 422].includes(upstream.status)) break;
             }
             res.statusCode = upstream.status;
             res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/json; charset=utf-8');
