@@ -6,6 +6,7 @@ import { signOut } from 'firebase/auth';
 import { collection, addDoc, updateDoc, deleteDoc, query, where, onSnapshot, orderBy, doc, getDocs, getDoc } from 'firebase/firestore';
 import '../App.css';
 import { Toaster, toast } from "sonner";
+import { getFunctions, httpsCallable } from 'firebase/functions';
 
 interface ModuloAgendaProps {
   perfil: { companyId: string; role: string; nome?: string; email?: string } | null;
@@ -434,34 +435,22 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
   const agendarNotificacaoPush = async (dataHorarioAtendimento: Date, tempoLembreteMinutos: number, nomeCliente: string) => {
     if (!perfil?.email) return;
-    
-    const dataNotificacao = new Date(dataHorarioAtendimento.getTime() - (tempoLembreteMinutos * 60000));
-    if (dataNotificacao.getTime() < new Date().getTime()) return;
-
-    const sendAfterFormatado = formatarDataOneSignal(dataNotificacao);
-    const ONESIGNAL_APP_ID = "a05664b1-082c-49e7-8348-56f901293513";
-    const ONESIGNAL_REST_API_KEY = "os_v2_app_ublgjmiifre6pa2ik34qckjvcnqid2ebfajulu4tyzbsfrh3ufcyazeu4yleaqx4chw4pkntjansh6amhgflaoorw4f2yiboe2cn6ji"; 
-
-    const body = {
-      app_id: ONESIGNAL_APP_ID,
-      include_aliases: { external_id: [perfil?.email] },
-      target_channel: "push",
-      headings: { en: "Lembrete de Atendimento", pt: "Lembrete de Atendimento" },
-      contents: { 
-        en: `Você tem um atendimento com ${nomeCliente} em ${tempoLembreteMinutos} minutos!`,
-        pt: `Você tem um atendimento com ${nomeCliente} em ${tempoLembreteMinutos} minutos!`
-      },
-      send_after: sendAfterFormatado 
-    };
+    const dataNotificacao = new Date(dataHorarioAtendimento.getTime() - tempoLembreteMinutos * 60000);
+    if (dataNotificacao.getTime() <= Date.now()) return;
 
     try {
-      await fetch("https://onesignal.com/api/v1/notifications", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Basic ${ONESIGNAL_REST_API_KEY}` },
-        body: JSON.stringify(body)
+      // A chave REST do OneSignal fica no servidor, nunca no bundle público do navegador.
+      const functions = getFunctions(auth.app);
+      const agendarPush = httpsCallable(functions, 'agendarLembreteAgendamento');
+      await agendarPush({
+        emailDestino: perfil.email,
+        nomeCliente,
+        dataNotificacao: dataNotificacao.toISOString(),
+        minutosAntes: tempoLembreteMinutos
       });
     } catch (error) {
-      console.error("Erro ao agendar Push no OneSignal", error);
+      console.error("Não foi possível agendar o push no servidor:", error);
+      toast.error("O agendamento foi salvo, mas não foi possível programar a notificação push.");
     }
   };
 
@@ -851,37 +840,45 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   }
 
   async function excluirAgendamento(agenda: Agendamento) {
-    if (window.confirm("Tem certeza? O agendamento será excluído do sistema.")) {
-      const toastId = toast.loading("Excluindo agendamento...");
-      try {
-        if (agenda.status === 'concluido') {
-            await efetuarReversao(agenda, true);
-        }
+    if (!window.confirm("Tem certeza? O agendamento será excluído do sistema e, quando possível, também do Google Agenda.")) return;
 
-        await deleteDoc(doc(db, 'agendamentos', agenda.id));
-        toast.dismiss(toastId);
-        
-        const tokenGoogle = sessionStorage.getItem('googleToken');
-        if (tokenGoogle && agenda.googleEventId) {
-          if (navigator.onLine) {
-            try {
-              const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${agenda.googleEventId}?sendUpdates=all`, {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${tokenGoogle}` }
-              });
-              if (res.status === 401) { lidarComTokenExpirado(); }
-            } catch (err) {
+    const toastId = toast.loading("Excluindo agendamento...");
+    try {
+      if (agenda.status === 'concluido') await efetuarReversao(agenda, true);
+
+      if (agenda.googleEventId) {
+        const tokenGoogle = localStorage.getItem('googleToken');
+        if (!tokenGoogle || !navigator.onLine) {
+          armazenarExclusaoPendente(agenda.googleEventId);
+        } else {
+          try {
+            const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(agenda.googleEventId)}?sendUpdates=all`, {
+              method: 'DELETE',
+              headers: { Authorization: `Bearer ${tokenGoogle}` }
+            });
+            if (res.status === 401) {
               armazenarExclusaoPendente(agenda.googleEventId);
+              lidarComTokenExpirado();
+            } else if (!res.ok && res.status !== 404 && res.status !== 410) {
+              armazenarExclusaoPendente(agenda.googleEventId);
+              console.error('Google Calendar não confirmou a exclusão:', res.status, await res.text());
             }
-          } else {
+          } catch (err) {
             armazenarExclusaoPendente(agenda.googleEventId);
+            console.error('Falha ao excluir evento do Google Calendar:', err);
           }
         }
-        toast.success("Agendamento removido.");
-      } catch(e) {
-        toast.dismiss(toastId);
-        toast.error("Erro ao excluir agendamento.");
       }
+
+      await deleteDoc(doc(db, 'agendamentos', agenda.id));
+      toast.dismiss(toastId);
+      toast.success(agenda.googleEventId
+        ? "Agendamento removido do sistema. A exclusão no Google Agenda foi feita ou ficou pendente para nova tentativa."
+        : "Agendamento removido.");
+    } catch (e) {
+      toast.dismiss(toastId);
+      toast.error("Erro ao excluir agendamento.");
+      console.error("Erro ao excluir agendamento:", e);
     }
   }
 
