@@ -1,8 +1,8 @@
 // api/webhook-whatsapp.js
 // Webhook multiempresa: cada estado, serviço e agendamento é isolado por companyId.
 
-const { initializeApp, cert, getApps } = require('firebase-admin/app');
-const { getFirestore, FieldValue } = require('firebase-admin/firestore');
+import { initializeApp, cert, getApps } from 'firebase-admin/app';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 
 function inicializarFirebase() {
   if (getApps().length) return;
@@ -326,7 +326,7 @@ async function processarMensagem({ companyId, telefone, nomeCliente, mensagem, e
   }
 }
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(200).send('Webhook WhatsApp ativo.');
   try {
     const segredoConfigurado = process.env.WHATSAPP_WEBHOOK_SECRET;
@@ -352,7 +352,7 @@ module.exports = async function handler(req, res) {
     const mensagem = extrairMensagem(payload);
     const messageId = String(key.id || '');
     if (!mensagem || !messageId) return res.status(200).send('Evento sem mensagem de texto ou ID.');
-    const evento = String(payload.event || '').toLowerCase();
+    const evento = String(payload.event || '').toLowerCase().replace(/_/g, '.');
     if (evento && !evento.includes('messages.upsert')) return res.status(200).send('Evento ignorado.');
 
     const empresa = await carregarEmpresa(companyId);
