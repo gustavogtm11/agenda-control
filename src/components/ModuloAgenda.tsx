@@ -56,17 +56,6 @@ const gerarHorarios = () => {
   return horarios;
 };
 
-// --- FUNÇÃO AUXILIAR DO ONESIGNAL ---
-const formatarDataOneSignal = (data: Date) => {
-  const pad = (n: number) => n.toString().padStart(2, '0');
-  const offset = -data.getTimezoneOffset();
-  const sign = offset >= 0 ? '+' : '-';
-  const hours = pad(Math.floor(Math.abs(offset) / 60));
-  const mins = pad(Math.abs(offset) % 60);
-  
-  return `${data.getFullYear()}-${pad(data.getMonth() + 1)}-${pad(data.getDate())} ${pad(data.getHours())}:${pad(data.getMinutes())}:${pad(data.getSeconds())} GMT${sign}${hours}${mins}`;
-};
-
 export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   const [servicosDisponiveis, setServicosDisponiveis] = useState<Servico[]>([]);
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
@@ -352,7 +341,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
   useEffect(() => {
     const tokenGoogle = localStorage.getItem('googleToken');
-    if (!tokenGoogle || !perfil?.companyId || agendamentos.length === 0) return;
+    if (!tokenGoogle || !perfil?.companyId) return;
 
     const executarSincronizacao = async () => {
       if (!navigator.onLine) return;
