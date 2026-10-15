@@ -889,8 +889,9 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   }
 
   function cancelarEdicao() {
-    setIdEmEdicao(null); 
-    setCliente(''); 
+    setIdEmEdicao(null);
+    setCliente('');
+    setTelefoneCliente('');
     setServicoIdsSelecionados([]); 
     setIsEncaixeAtivo(false);
     setMostrarFormulario(false);
