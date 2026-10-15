@@ -174,9 +174,13 @@ async function atualizarEstado(estadoRef, dados) {
 async function responderInicio(telefone, companyId, nomeCliente, config, estadoRef) {
   const variaveis = { primeiroNome: String(nomeCliente || 'cliente').split(/\s+/)[0] };
   let boasVindas = textoConfig(config, 'msgBoasVindas', 'Olá {primeiroNome}! 👋 Sou o assistente virtual. Vou te ajudar por aqui.');
-  const menu = textoConfig(config, 'msgMenuPrincipal', 'Como posso ajudar?\n1 - Agendar horário 📅\n2 - Cancelar agendamento ❌\n3 - Consultar meus horários 📋\n4 - Falar com atendente 👤');
-  if (config.msgMenuPrincipal && /(?:^|\n)\s*1\s*[-.)]\s*(agendar|marcar|fazer agendamento)/i.test(boasVindas)) {
-    boasVindas = limparMenuLegado(boasVindas);
+  const temMenuLegado = /(?:^|\n)\s*1\s*[-.)]\s*(agendar|marcar|fazer agendamento)/i.test(boasVindas);
+  let menu = '';
+  if (typeof config.msgMenuPrincipal === 'string') {
+    menu = config.msgMenuPrincipal.trim();
+    if (temMenuLegado) boasVindas = limparMenuLegado(boasVindas);
+  } else if (!temMenuLegado) {
+    menu = 'Como posso ajudar?\n1 - Agendar horário 📅\n2 - Cancelar agendamento ❌\n3 - Consultar meus horários 📋\n4 - Falar com atendente 👤';
   }
   const mensagem = menu ? renderizarMensagem(boasVindas, variaveis) + '\n\n' + renderizarMensagem(menu, variaveis) : renderizarMensagem(boasVindas, variaveis);
   await enviarMensagem(telefone, mensagem, companyId);
@@ -249,6 +253,10 @@ async function criarAgendamentoSeDisponivel(companyId, telefone, nomeCliente, es
   const duracao = Math.max(1, Number(servico.duracaoMinutos) || 30);
   const hora = estado.horarioEscolhido;
   const dataIso = estado.dataEscolhida;
+  const horariosAtualizados = await calcularHorariosDisponiveis(companyId, dataIso, servico);
+  if (!horariosAtualizados.includes(hora)) {
+    throw new Error('Esse horário não está mais disponível. Escolha outra opção.');
+  }
   const lockIds = gerarLockIds(companyId, dataIso, hora, duracao);
   const agendamentosRef = db().collection('agendamentos');
   const agendamentoRef = agendamentosRef.doc();
