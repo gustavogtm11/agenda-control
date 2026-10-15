@@ -72,6 +72,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
   const [mostrarFormulario, setMostrarFormulario] = useState(false);
   const salvandoAgendamentoRef = useRef(false);
+  const agendamentosCriadosRef = useRef<Set<string>>(new Set());
   const [salvandoAgendamento, setSalvandoAgendamento] = useState(false);
 
   const [idEmEdicao, setIdEmEdicao] = useState<string | null>(null);
@@ -700,14 +701,21 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     // Também bloqueia repetir exatamente o mesmo agendamento se a primeira gravação já apareceu na lista.
     const chaveServicosSelecionados = [...servicoIdsSelecionados].sort().join('|');
     const nomeClienteNormalizado = cliente.trim().replace(/\s+/g, ' ').toLocaleLowerCase('pt-BR');
-    const duplicado = !idEmEdicao && agendamentos.some(a => {
+    const chaveUnicaAgendamento = [
+      perfil.companyId,
+      dataForm + 'T' + horaForm,
+      nomeClienteNormalizado,
+      chaveServicosSelecionados,
+      emailFuncionarioSelecionado || ''
+    ].join('::');
+    const duplicado = !idEmEdicao && (agendamentosCriadosRef.current.has(chaveUnicaAgendamento) || agendamentos.some(a => {
       const servicosExistentes = [...(a.servicoIds || (a.servicoId ? [a.servicoId] : []))].sort().join('|');
       const nomeExistente = a.clienteNome.trim().replace(/\s+/g, ' ').toLocaleLowerCase('pt-BR');
       return a.dataHora === dataForm + 'T' + horaForm
         && nomeExistente === nomeClienteNormalizado
         && servicosExistentes === chaveServicosSelecionados
         && (a.funcionarioEmail || '') === (emailFuncionarioSelecionado || '');
-    });
+    }));
     if (duplicado) {
       toast.error("Este agendamento já existe. Não foi criado outro.");
       return;
@@ -824,6 +832,8 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
             googleSyncPending: googleSyncPending
         });
         
+        // Reserva a chave imediatamente, sem depender do tempo de atualização do onSnapshot.
+        agendamentosCriadosRef.current.add(chaveUnicaAgendamento);
         toast.success("Agendamento efetuado!");
         await agendarNotificacaoPush(dataHoraAtendimento, tempoLembreteConfig, cliente);
       } catch (err) {
