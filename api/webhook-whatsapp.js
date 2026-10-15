@@ -329,6 +329,11 @@ async function processarMensagem({ companyId, telefone, nomeCliente, mensagem, e
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(200).send('Webhook WhatsApp ativo.');
   try {
+    const segredoConfigurado = process.env.WHATSAPP_WEBHOOK_SECRET;
+    if (!segredoConfigurado || req.query?.secret !== segredoConfigurado) {
+      return res.status(401).send('Webhook não autorizado.');
+    }
+
     inicializarFirebase();
     const payload = req.body || {};
     const companyId = String(payload.instance || '');
