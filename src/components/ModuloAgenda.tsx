@@ -26,7 +26,8 @@ interface Agendamento {
   preco: number; 
   dataHora: string; 
   duracaoMinutos: number; 
-  status: 'pendente' | 'concluido';
+  status: 'pendente' | 'concluido' | 'cancelado';
+  cancelamentoPendenteGoogle?: boolean;
   googleEventId?: string; 
   googleSyncPending?: boolean; 
   transacaoCaixaId?: string; 
@@ -90,6 +91,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   const [mostrarFormulario, setMostrarFormulario] = useState(false);
   const salvandoAgendamentoRef = useRef(false);
   const agendamentosCriadosRef = useRef<Set<string>>(new Set());
+  const cancelamentosGoogleProcessandoRef = useRef<Set<string>>(new Set());
   const [salvandoAgendamento, setSalvandoAgendamento] = useState(false);
 
   const [idEmEdicao, setIdEmEdicao] = useState<string | null>(null);
@@ -147,11 +149,51 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
       setFuncionarios(lista);
     });
 
+    const processarCancelamentoGoogle = async (agendamentoId: string, dados: any) => {
+      if (!dados.googleEventId) {
+        await deleteDoc(doc(db, 'agendamentos', agendamentoId)).catch((error) => {
+          console.error('[WhatsApp] Não foi possível limpar agendamento cancelado:', error);
+        });
+        return;
+      }
+      if (cancelamentosGoogleProcessandoRef.current.has(agendamentoId)) return;
+      cancelamentosGoogleProcessandoRef.current.add(agendamentoId);
+      let removido = false;
+      try {
+        const tokenGoogle = obterTokenGoogle();
+        if (!tokenGoogle || !navigator.onLine) return;
+        const resposta = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(dados.googleEventId)}?sendUpdates=all`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${tokenGoogle}` },
+        });
+        if (resposta.status === 401) {
+          lidarComTokenExpirado();
+          return;
+        }
+        if (resposta.ok || resposta.status === 404 || resposta.status === 410) {
+          await deleteDoc(doc(db, 'agendamentos', agendamentoId));
+          removido = true;
+        } else {
+          console.error('[WhatsApp] Google Calendar não confirmou o cancelamento:', resposta.status, await resposta.text());
+          toast.error('O agendamento foi cancelado no sistema, mas a sincronização com Google Agenda precisa ser tentada novamente.');
+        }
+      } catch (error) {
+        console.error('[WhatsApp] Falha ao sincronizar cancelamento com Google Agenda:', error);
+        toast.error('O agendamento foi cancelado no sistema, mas a sincronização com Google Agenda ficou pendente.');
+      } finally {
+        if (!removido) cancelamentosGoogleProcessandoRef.current.delete(agendamentoId);
+      }
+    };
+
     const unsubAgendamentos = onSnapshot(query(collection(db, 'agendamentos'), where('companyId', '==', perfil.companyId), orderBy('dataHora', 'asc')), (snapshot) => {
       const lista: Agendamento[] = [];
-      snapshot.forEach(doc => {
-        const d = doc.data();
-        lista.push({ id: doc.id, ...d } as Agendamento);
+      snapshot.forEach((documento) => {
+        const d = documento.data();
+        if (d.status === 'cancelado') {
+          void processarCancelamentoGoogle(documento.id, d);
+          return;
+        }
+        lista.push({ id: documento.id, ...d } as Agendamento);
       });
       setAgendamentos(lista);
     });
