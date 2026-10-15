@@ -158,7 +158,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
       }
       if (cancelamentosGoogleProcessandoRef.current.has(agendamentoId)) return;
       cancelamentosGoogleProcessandoRef.current.add(agendamentoId);
-      let removido = false;
       try {
         const tokenGoogle = obterTokenGoogle();
         if (!tokenGoogle || !navigator.onLine) return;
@@ -172,7 +171,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
         }
         if (resposta.ok || resposta.status === 404 || resposta.status === 410) {
           await deleteDoc(doc(db, 'agendamentos', agendamentoId));
-          removido = true;
         } else {
           console.error('[WhatsApp] Google Calendar não confirmou o cancelamento:', resposta.status, await resposta.text());
           toast.error('O agendamento foi cancelado no sistema, mas a sincronização com Google Agenda precisa ser tentada novamente.');
