@@ -1,6 +1,7 @@
 import React, { useEffect, useState, createContext, useContext } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { auth, db } from './config/firebase'; 
+import { auth, db } from './config/firebase';
+import { obterTokenGooglePersistente } from './utils/googleCalendarAuth'; 
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore'; 
 
@@ -299,6 +300,24 @@ export default function App() {
 
     return () => unsubscribe();
   }, []);
+
+  // Renova o acesso ao Google Agenda em segundo plano ao abrir/retomar o sistema.
+  // A sessão do Firebase permanece independente e não é encerrada se o token Google expirar.
+  useEffect(() => {
+    if (!usuario) return;
+    const renovarAcessoGoogle = () => {
+      if (document.visibilityState === 'visible') {
+        void obterTokenGooglePersistente();
+      }
+    };
+    renovarAcessoGoogle();
+    window.addEventListener('focus', renovarAcessoGoogle);
+    document.addEventListener('visibilitychange', renovarAcessoGoogle);
+    return () => {
+      window.removeEventListener('focus', renovarAcessoGoogle);
+      document.removeEventListener('visibilitychange', renovarAcessoGoogle);
+    };
+  }, [usuario]);
 
   const dismissPwaPrompt = () => {
     setShowPwaPrompt(false);
