@@ -522,6 +522,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
     executarSincronizacao();
     window.addEventListener('online', executarSincronizacao);
+    window.addEventListener('google-calendar-token-updated', executarSincronizacao);
     
     const intervaloSincronismo = setInterval(() => {
       executarSincronizacao();
@@ -529,6 +530,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
     return () => {
       window.removeEventListener('online', executarSincronizacao);
+      window.removeEventListener('google-calendar-token-updated', executarSincronizacao);
       clearInterval(intervaloSincronismo);
     };
   }, [agendamentos, perfil?.companyId, funcionarios]);
