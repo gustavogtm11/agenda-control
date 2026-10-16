@@ -202,6 +202,27 @@ export function ModuloAutomacaoWhatsApp({ perfil }: ModuloAutomacaoProps) {
     }
   };
 
+  const verificarWebhook = async () => {
+    if (!perfil?.companyId) return;
+    setCarregando(true);
+    try {
+      const data = await evolutionFetch('/webhook/find/' + encodeURIComponent(perfil.companyId), 'GET');
+      const ativo = data?.enabled === true || data?.webhook?.enabled === true;
+      const urlConfigurada = typeof data?.url === 'string' || typeof data?.webhook?.url === 'string';
+      const eventos = data?.events || data?.webhook?.events || [];
+      if (ativo && urlConfigurada) {
+        showToast('Webhook ativo. Eventos configurados: ' + (Array.isArray(eventos) ? eventos.join(', ') : 'não informados') + '.', 'success');
+      } else {
+        showToast('A Evolution respondeu, mas o webhook não aparece ativo ou sem URL configurada.', 'error');
+      }
+    } catch (error) {
+      console.error('[WhatsApp] Erro ao consultar webhook:', error);
+      showToast(error instanceof Error ? error.message : 'Não foi possível verificar o webhook.', 'error');
+    } finally {
+      setCarregando(false);
+    }
+  };
+
   const enviarMensagemTeste = async () => {
     if (!perfil?.companyId) {
       showToast('Não foi possível identificar a empresa.', 'error');
@@ -316,6 +337,9 @@ export function ModuloAutomacaoWhatsApp({ perfil }: ModuloAutomacaoProps) {
           </p>
           <button type="button" onClick={registrarWebhook} disabled={carregando || statusConexao !== 'conectado'} style={{ ...botaoStyle, background: '#7c3aed', color: '#fff', borderColor: '#7c3aed', opacity: carregando || statusConexao !== 'conectado' ? .6 : 1 }}>
             {carregando ? 'Sincronizando...' : 'Sincronizar webhook'}
+          </button>
+          <button type="button" onClick={() => void verificarWebhook()} disabled={carregando} style={{ ...botaoStyle, marginLeft: 8, opacity: carregando ? .6 : 1 }}>
+            Verificar webhook
           </button>
           <button type="button" onClick={() => void salvarConfiguracoes()} disabled={carregando} style={{ ...botaoStyle, marginLeft: 8 }}>
             Salvar configuração
