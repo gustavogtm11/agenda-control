@@ -162,7 +162,18 @@ export default async function handler(req, res) {
     let upstream;
     let text;
     if (webhookMatch) {
+      // Evolution v1.8.x pode exigir o objeto "webhook" aninhado.
+      // Tentamos primeiro esse formato e mantemos compatibilidade com versões flat.
       const webhookPayloads = [
+        {
+          webhook: {
+            enabled: true,
+            url: webhookUrl,
+            byEvents: false,
+            base64: false,
+            events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
+          },
+        },
         {
           enabled: true,
           url: webhookUrl,
@@ -176,15 +187,6 @@ export default async function handler(req, res) {
           webhook_by_events: false,
           webhook_base64: false,
           events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
-        },
-        {
-          webhook: {
-            enabled: true,
-            url: webhookUrl,
-            byEvents: false,
-            base64: false,
-            events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
-          },
         },
       ];
       for (const webhookPayload of webhookPayloads) {
