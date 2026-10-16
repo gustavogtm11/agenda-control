@@ -1,11 +1,10 @@
 // src/components/ModuloAgenda.tsx
 
 import { useState, useEffect, useRef } from 'react';
-import { db, auth } from '../config/firebase'; 
+import { db } from '../config/firebase'; 
 import { collection, addDoc, updateDoc, deleteDoc, query, where, onSnapshot, orderBy, doc, getDocs, getDoc, runTransaction } from 'firebase/firestore';
 import '../App.css';
 import { Toaster, toast } from "sonner";
-import { getFunctions, httpsCallable } from 'firebase/functions';
 
 interface ModuloAgendaProps {
   perfil: { companyId: string; role: string; nome?: string; email?: string } | null;
@@ -27,7 +26,6 @@ interface Agendamento {
   googleEventId?: string; 
   googleSyncPending?: boolean; 
   transacaoCaixaId?: string; 
-  notificado30Min?: boolean;
   bloquearConclusaoAuto?: boolean;
 }
 
@@ -82,7 +80,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   const [almocoConfig, setAlmocoConfig] = useState<any>(null);
   const [diasBloqueadosConfig, setDiasBloqueadosConfig] = useState<string[]>([]);
   const [mensagemLembreteConfig, setMensagemLembreteConfig] = useState<string>('');
-  const [tempoLembreteConfig, setTempoLembreteConfig] = useState<number>(30); 
 
   const [mostrarFormulario, setMostrarFormulario] = useState(false);
   const salvandoAgendamentoRef = useRef(false);
@@ -117,11 +114,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     toast.error("A autorização do Google Agenda expirou. Sua sessão no sistema continua ativa; a sincronização da agenda precisa ser reconectada.");
   };
 
-  useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
-  }, []);
 
   useEffect(() => {
     const fecharMenus = () => setMenuAbertoId(null);
@@ -181,11 +173,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
           const mensagemSalva = dados.configuracoesGlobais?.mensagemLembrete ?? dados.mensagemLembrete;
           if (typeof mensagemSalva === 'string') setMensagemLembreteConfig(mensagemSalva);
           
-          if (dados.minutosAvisoPrevioAgenda !== undefined) {
-            setTempoLembreteConfig(dados.minutosAvisoPrevioAgenda);
-          } else if (dados.configuracoesGlobais?.minutosAvisoPrevioAgenda !== undefined) {
-            setTempoLembreteConfig(dados.configuracoesGlobais.minutosAvisoPrevioAgenda);
-          }
       }
     });
 
@@ -326,32 +313,13 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   useEffect(() => {
     if (agendamentos.length === 0) return;
 
-    const verificarNotificacoesEStatus = () => {
+    const verificarStatusAgendamentos = () => {
       const agora = new Date();
 
       agendamentos.forEach(async (ag) => {
         if (ag.status === 'pendente') {
           const inicio = new Date(`${ag.dataHora}:00`);
           const fim = new Date(inicio.getTime() + (ag.duracaoMinutos * 60000));
-          
-          const minutosAteInicio = (inicio.getTime() - agora.getTime()) / 60000;
-
-          if (minutosAteInicio <= tempoLembreteConfig && minutosAteInicio > 0 && !ag.notificado30Min) {
-            if ('Notification' in window && Notification.permission === 'granted') {
-              new Notification('⏰ Lembrete de Agendamento!', {
-                body: `Seu agendamento com ${ag.clienteNome} (${ag.servicoNome}) é às ${ag.dataHora.split('T')[1]} (em ~${Math.round(minutosAteInicio)} min).`,
-                tag: ag.id
-              });
-            }
-
-            try {
-              await updateDoc(doc(db, 'agendamentos', ag.id), { 
-                notificado30Min: true 
-              });
-            } catch (err) {
-              console.error("Erro ao registrar notificação enviada:", err);
-            }
-          }
 
           if (!ag.bloquearConclusaoAuto && agora >= fim) {
             await efetuarConclusao(ag, true);
@@ -360,11 +328,11 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
       });
     };
 
-    verificarNotificacoesEStatus();
-    const intervalo = setInterval(verificarNotificacoesEStatus, 30000); 
+    verificarStatusAgendamentos();
+    const intervalo = setInterval(verificarStatusAgendamentos, 30000);
 
     return () => clearInterval(intervalo);
-  }, [agendamentos, tempoLembreteConfig, perfil?.companyId]); 
+  }, [agendamentos, perfil?.companyId]); 
 
   useEffect(() => {
     if (!perfil?.companyId) return;
@@ -467,26 +435,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     };
   }, [agendamentos, perfil?.companyId, funcionarios]);
 
-  const agendarNotificacaoPush = async (dataHorarioAtendimento: Date, tempoLembreteMinutos: number, nomeCliente: string) => {
-    if (!perfil?.email) return;
-    const dataNotificacao = new Date(dataHorarioAtendimento.getTime() - tempoLembreteMinutos * 60000);
-    if (dataNotificacao.getTime() <= Date.now()) return;
-
-    try {
-      // A chave REST do OneSignal fica no servidor, nunca no bundle público do navegador.
-      const functions = getFunctions(auth.app);
-      const agendarPush = httpsCallable(functions, 'agendarLembreteAgendamento');
-      await agendarPush({
-        emailDestino: perfil.email,
-        nomeCliente,
-        dataNotificacao: dataNotificacao.toISOString(),
-        minutosAntes: tempoLembreteMinutos
-      });
-    } catch (error) {
-      console.error("Não foi possível agendar o push no servidor:", error);
-      toast.error("O agendamento foi salvo, mas não foi possível programar a notificação push.");
-    }
-  };
 
   const obterHorariosDisponiveis = () => {
     const todosHorarios = gerarHorarios();
@@ -794,7 +742,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
     const funcEscolhido = funcionarios.find(f => f.email === emailFuncionarioSelecionado);
     const dataHoraIso = `${dataForm}T${horaForm}`;
-    const dataHoraAtendimento = new Date(`${dataHoraIso}:00`);
 
     const tokenGoogle = obterTokenGoogle();
     const start = new Date(`${dataHoraIso}:00`);
@@ -847,7 +794,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
         });
         
         toast.success("Agendamento atualizado com sucesso!");
-        await agendarNotificacaoPush(dataHoraAtendimento, tempoLembreteConfig, cliente);
       } catch (err) {
         toast.error("Erro ao salvar no banco local.");
       }
@@ -873,7 +819,6 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
         // Reserva a chave imediatamente, sem depender do tempo de atualização do onSnapshot.
         agendamentosCriadosRef.current.add(chaveUnicaAgendamento);
         toast.success("Agendamento salvo! Sincronização com Google Agenda pendente.");
-        await agendarNotificacaoPush(dataHoraAtendimento, tempoLembreteConfig, cliente);
       } catch (err) {
         toast.error("Erro ao salvar o agendamento localmente.");
       }
