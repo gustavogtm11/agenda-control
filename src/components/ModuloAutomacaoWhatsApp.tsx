@@ -207,7 +207,10 @@ export function ModuloAutomacaoWhatsApp({ perfil }: ModuloAutomacaoProps) {
       showToast('Não foi possível identificar a empresa.', 'error');
       return;
     }
-    const numero = numeroTeste.replace(/\\D/g, '');
+    const numeroInformado = numeroTeste.replace(/\\D/g, '');
+    const numero = numeroInformado.length === 10 || numeroInformado.length === 11
+      ? '55' + numeroInformado
+      : numeroInformado;
     const texto = mensagemTeste.trim();
     if (numero.length < 10 || numero.length > 15) {
       showToast('Informe um número válido com DDD e código do país, se necessário.', 'error');
