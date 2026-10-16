@@ -146,8 +146,8 @@ export default async function handler(req, res) {
       upstreamBody = {
         enabled: true,
         url: webhookUrl,
-        webhook_by_events: false,
-        webhook_base64: false,
+        headers: {},
+        base64: false,
         events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
       };
     }
@@ -164,8 +164,8 @@ export default async function handler(req, res) {
       const webhookPayload = {
         enabled: true,
         url: webhookUrl,
-        webhook_by_events: false,
-        webhook_base64: false,
+        headers: {},
+        base64: false,
         events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
       };
       upstream = await fetch(url, {
