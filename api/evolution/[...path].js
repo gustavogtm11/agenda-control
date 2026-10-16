@@ -55,6 +55,7 @@ export default async function handler(req, res) {
     const createRoute = path === '/instance/create' && req.method === 'POST';
     const connectMatch = path.match(/^\/instance\/(connect|connectionState)\/([a-zA-Z0-9_-]{1,100})$/);
     const webhookMatch = path.match(/^\/webhook\/set\/([a-zA-Z0-9_-]{1,100})$/);
+    const webhookFindMatch = path.match(/^\\/webhook\\/find\\/([a-zA-Z0-9_-]{1,100})$/);
     const sendTextMatch = path.match(/^\/message\/sendText\/([a-zA-Z0-9_-]{1,100})$/);
 
     if (createRoute) {
@@ -74,6 +75,11 @@ export default async function handler(req, res) {
       instanceName = webhookMatch[1];
       if (!isSuperAdmin && (!companyId || instanceName !== companyId)) {
         return sendJson(res, 403, { error: 'Você só pode configurar o WhatsApp da sua empresa.' });
+      }
+    } else if (webhookFindMatch && req.method === 'GET') {
+      instanceName = webhookFindMatch[1];
+      if (!isSuperAdmin && (!companyId || instanceName !== companyId)) {
+        return sendJson(res, 403, { error: 'Você só pode consultar o webhook da sua empresa.' });
       }
     } else if (sendTextMatch && req.method === 'POST') {
       instanceName = sendTextMatch[1];
@@ -121,29 +127,21 @@ export default async function handler(req, res) {
       };
     }
     let webhookUrl = '';
+    let webhookSecretHash = '';
     if (webhookMatch) {
-      // Em deployments Vercel, usar o domínio desta implantação mantém o webhook
-      // apontado para a branch/preview que está sendo testada, não para produção.
+      // Em deployments Vercel, usa o domínio desta implantação/preview.
       const deploymentHost = String(process.env.VERCEL_URL || '').replace(/^https?:\/\//, '').replace(/\/$/, '');
       const configuredBase = String(process.env.WHATSAPP_WEBHOOK_BASE_URL || '').trim();
       const webhookBaseUrl = deploymentHost
         ? 'https://' + deploymentHost + '/api/webhook-whatsapp'
         : configuredBase.replace(/\/$/, '');
       if (!webhookBaseUrl || !/^https:\/\//i.test(webhookBaseUrl)) {
-        return sendJson(res, 503, { error: 'Não foi possível determinar a URL HTTPS desta implantação para o webhook.' });
+        return sendJson(res, 503, { error: 'Não foi possível determinar a URL HTTPS pública desta implantação para o webhook. Configure WHATSAPP_WEBHOOK_BASE_URL ou use uma implantação Vercel.' });
       }
 
-      const secretRef = db.collection('whatsapp_webhook_secrets').doc(instanceName);
-      // O token em texto puro só existe durante esta requisição. No Firestore fica apenas o hash.
+      // Mantém o segredo ativo anterior se a Evolution rejeitar a configuração.
       const webhookSecret = randomBytes(32).toString('hex');
-      const secretHash = createHash('sha256').update(webhookSecret).digest('hex');
-
-      await secretRef.set({
-        secretHash,
-        instanceName,
-        updatedAt: new Date().toISOString(),
-      });
-
+      webhookSecretHash = createHash('sha256').update(webhookSecret).digest('hex');
       webhookUrl = webhookBaseUrl + '?secret=' + encodeURIComponent(webhookSecret);
       upstreamBody = {
         enabled: true,
@@ -162,38 +160,27 @@ export default async function handler(req, res) {
     let upstream;
     let text;
     if (webhookMatch) {
-      // A instância conhecida usa Evolution API v1.8.2, cuja rota /webhook/set
-      // espera url na raiz. Tentamos primeiro o formato flat; o envelope aninhado
-      // fica como fallback para versões mais novas da Evolution.
-      const webhookPayloads = [
-        {
-          enabled: true,
-          url: webhookUrl,
-          webhookByEvents: false,
-          webhookBase64: false,
-          events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
-        },
-        {
-          enabled: true,
-          url: webhookUrl,
-          webhook_by_events: false,
-          webhook_base64: false,
-          events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
-        },
-        {
-          webhook: {
-            enabled: true,
-            url: webhookUrl,
-            byEvents: false,
-            base64: false,
-            events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
-          },
-        },
-      ];
-      for (const webhookPayload of webhookPayloads) {
-        upstream = await fetch(url, { method: req.method, headers, body: JSON.stringify(webhookPayload) });
-        text = await upstream.text();
-        if (upstream.ok || ![400, 422].includes(upstream.status)) break;
+      // Configuração flat documentada pela Evolution para webhook por instância.
+      const webhookPayload = {
+        enabled: true,
+        url: webhookUrl,
+        webhook_by_events: false,
+        webhook_base64: false,
+        events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
+      };
+      upstream = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(webhookPayload),
+      });
+      text = await upstream.text();
+
+      if (upstream.ok) {
+        await db().collection('whatsapp_webhook_secrets').doc(instanceName).set({
+          secretHash: webhookSecretHash,
+          instanceName,
+          updatedAt: new Date().toISOString(),
+        });
       }
     } else {
       upstream = await fetch(url, {
