@@ -10,6 +10,7 @@ import { useRegisterSW } from 'virtual:pwa-register/react';
 import { Login } from './pages/Login';
 import { Painel } from './pages/Painel';
 import { AgendamentoPublico } from './pages/AgendamentoPublico';
+import { reconectarGoogleCalendarSilenciosamente } from './utils/googleCalendarAuth';
 
 // ============================================================================
 // TOAST CONTEXT PARA SUBSTITUIR ALERT() GLOBALMENTE
@@ -258,6 +259,38 @@ export default function App() {
 
     return () => unsubscribe();
   }, []);
+
+  // Renova o token do Google Agenda ao abrir/retornar ao sistema, sem exigir logout/login.
+  // A sessão do Firebase continua independente da autorização do Google Calendar.
+  useEffect(() => {
+    if (!usuario) return;
+
+    let ativo = true;
+    let ultimaTentativa = 0;
+
+    const reconectar = () => {
+      if (document.visibilityState !== 'visible') return;
+      // Evita disparos duplicados quando o navegador emite focus e visibilitychange juntos.
+      if (Date.now() - ultimaTentativa < 30000) return;
+      ultimaTentativa = Date.now();
+
+      void reconectarGoogleCalendarSilenciosamente().then((token) => {
+        if (ativo && token) {
+          window.dispatchEvent(new CustomEvent('google-calendar-token-updated'));
+        }
+      });
+    };
+
+    reconectar();
+    window.addEventListener('focus', reconectar);
+    document.addEventListener('visibilitychange', reconectar);
+
+    return () => {
+      ativo = false;
+      window.removeEventListener('focus', reconectar);
+      document.removeEventListener('visibilitychange', reconectar);
+    };
+  }, [usuario]);
 
   const dismissPwaPrompt = () => {
     setShowPwaPrompt(false);
