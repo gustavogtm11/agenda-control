@@ -80,7 +80,8 @@ export default async function handler(req, res) {
       if (!isSuperAdmin && (!companyId || instanceName !== companyId)) {
         return sendJson(res, 403, { error: 'Você só pode enviar mensagens pelo WhatsApp da sua empresa.' });
       }
-      const number = String(req.body?.number || '').replace(/\\D/g, '');
+      const numberInput = String(req.body?.number || '').replace(/\\D/g, '');
+      const number = numberInput.length === 10 || numberInput.length === 11 ? '55' + numberInput : numberInput;
       const messageText = String(req.body?.textMessage?.text || req.body?.text || '').trim();
       if (number.length < 10 || number.length > 15) {
         return sendJson(res, 400, { error: 'Informe um número de WhatsApp válido com DDD e código do país, se necessário.' });
@@ -110,7 +111,10 @@ export default async function handler(req, res) {
       };
     } else if (sendTextMatch) {
       upstreamBody = {
-        number: String(req.body?.number || '').replace(/\\D/g, ''),
+        number: (() => {
+          const value = String(req.body?.number || '').replace(/\\D/g, '');
+          return value.length === 10 || value.length === 11 ? '55' + value : value;
+        })(),
         textMessage: {
           text: String(req.body?.textMessage?.text || req.body?.text || '').trim(),
         },
