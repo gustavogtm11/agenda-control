@@ -207,7 +207,7 @@ export function ModuloAutomacaoWhatsApp({ perfil }: ModuloAutomacaoProps) {
       showToast('Não foi possível identificar a empresa.', 'error');
       return;
     }
-    const numeroInformado = numeroTeste.replace(/\\D/g, '');
+    const numeroInformado = numeroTeste.replace(/\D/g, '');
     const numero = numeroInformado.length === 10 || numeroInformado.length === 11
       ? '55' + numeroInformado
       : numeroInformado;
