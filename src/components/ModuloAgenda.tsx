@@ -600,7 +600,29 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
       .replace(/{profissional}/g, nomeProfissional);
   };
 
-  // Recarrega o template salvo no Firestore ao abrir o aviso, evitando usar um padrão antigo em memória.\n  const abrirLembrete = async (agenda: Agendamento) => {\n    try {\n      if (perfil?.companyId) {\n        const empresaSnap = await getDoc(doc(db, 'empresas', perfil.companyId));\n        if (empresaSnap.exists()) {\n          const dados = empresaSnap.data();\n          const mensagemSalva = dados.configuracoesGlobais?.mensagemLembrete ?? dados.mensagemLembrete;\n          if (typeof mensagemSalva === 'string') {\n            setMensagemLembreteConfig(mensagemSalva);\n          }\n        }\n      }\n    } catch (erro) {\n      console.error('Não foi possível atualizar o modelo de lembrete salvo:', erro);\n      toast.error('Não foi possível carregar a mensagem salva nas configurações.');\n    } finally {\n      setMenuAbertoId(null);\n      setAgendaLembreteAlvo(agenda);\n    }\n  };\n\n  const executarCopiarLembrete = (agenda: Agendamento) => {
+  // Recarrega o template salvo no Firestore ao abrir o aviso, evitando usar um padrão antigo em memória.
+  const abrirLembrete = async (agenda: Agendamento) => {
+    try {
+      if (perfil?.companyId) {
+        const empresaSnap = await getDoc(doc(db, 'empresas', perfil.companyId));
+        if (empresaSnap.exists()) {
+          const dados = empresaSnap.data();
+          const mensagemSalva = dados.configuracoesGlobais?.mensagemLembrete ?? dados.mensagemLembrete;
+          if (typeof mensagemSalva === 'string') {
+            setMensagemLembreteConfig(mensagemSalva);
+          }
+        }
+      }
+    } catch (erro) {
+      console.error('Não foi possível atualizar o modelo de lembrete salvo:', erro);
+      toast.error('Não foi possível carregar a mensagem salva nas configurações.');
+    } finally {
+      setMenuAbertoId(null);
+      setAgendaLembreteAlvo(agenda);
+    }
+  };
+
+  const executarCopiarLembrete = (agenda: Agendamento) => {
     const texto = montarTextoLembretePersonalizado(agenda);
     navigator.clipboard.writeText(texto);
     toast.success("Mensagem de lembrete copiada com sucesso!");
