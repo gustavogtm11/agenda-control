@@ -1,16 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { auth } from '../config/firebase'; 
 import { signOut } from 'firebase/auth';
 import { useToast } from '../App';
 
-import { ModuloAgenda } from '../components/ModuloAgenda';
-import { ModuloCaixa } from '../components/ModuloCaixa';
-import { ModuloEstoque } from '../components/ModuloEstoque';
-import { ModuloServicos } from '../components/ModuloServicos';
-import { ModuloFuncionarios } from '../components/ModuloFuncionarios';
-import { ModuloSuperAdmin } from '../components/ModuloSuperAdmin';
-import { ModuloConfiguracoes } from '../components/ModuloConfiguracoes';
-import { ModuloAutomacaoWhatsApp } from '../components/ModuloAutomacaoWhatsApp';
+const ModuloAgenda = lazy(() => import('../components/ModuloAgenda').then(m => ({ default: m.ModuloAgenda })));
+const ModuloCaixa = lazy(() => import('../components/ModuloCaixa').then(m => ({ default: m.ModuloCaixa })));
+const ModuloEstoque = lazy(() => import('../components/ModuloEstoque').then(m => ({ default: m.ModuloEstoque })));
+const ModuloServicos = lazy(() => import('../components/ModuloServicos').then(m => ({ default: m.ModuloServicos })));
+const ModuloFuncionarios = lazy(() => import('../components/ModuloFuncionarios').then(m => ({ default: m.ModuloFuncionarios })));
+const ModuloSuperAdmin = lazy(() => import('../components/ModuloSuperAdmin').then(m => ({ default: m.ModuloSuperAdmin })));
+const ModuloConfiguracoes = lazy(() => import('../components/ModuloConfiguracoes').then(m => ({ default: m.ModuloConfiguracoes })));
+const ModuloAutomacaoWhatsApp = lazy(() => import('../components/ModuloAutomacaoWhatsApp').then(m => ({ default: m.ModuloAutomacaoWhatsApp })));
 
 interface PainelProps {
   perfil: { id?: string; nome: string; companyId: string; role: string; } | null;
@@ -287,6 +287,7 @@ export function Painel({ perfil }: PainelProps) {
         )}
 
         <div style={{ marginTop: isMobile && !menuExpandido ? '60px' : '0', width: '100%', animation: 'fadeInContent 0.4s ease-out' }}>
+          <Suspense fallback={<div style={{ padding: '24px', textAlign: 'center', color: '#7f8c8d' }}>Carregando módulo...</div>}>
           {abaAtiva === 'agenda' && perfil?.role !== 'super_admin' && <ModuloAgenda perfil={perfil} />}
           {abaAtiva === 'caixa' && perfil?.role === 'chefe' && <ModuloCaixa perfil={perfil} />}
           {abaAtiva === 'estoque' && perfil?.role === 'chefe' && <ModuloEstoque perfil={perfil} />}
@@ -295,6 +296,7 @@ export function Painel({ perfil }: PainelProps) {
           {abaAtiva === 'admin' && perfil?.role === 'super_admin' && <ModuloSuperAdmin />}
           {abaAtiva === 'config' && perfil?.role === 'chefe' && <ModuloConfiguracoes perfil={perfil} />}
           {abaAtiva === 'automacao' && perfil?.role === 'chefe' && <ModuloAutomacaoWhatsApp perfil={perfil} />}
+          </Suspense>
         </div>
       </main>
     </div>
