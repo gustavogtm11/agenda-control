@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { db, auth } from '../config/firebase'; 
 import { signOut } from 'firebase/auth'; 
-import { collection, addDoc, updateDoc, deleteDoc, query, where, onSnapshot, orderBy, doc, getDocs, getDoc } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, deleteDoc, query, where, onSnapshot, orderBy, doc, getDocs, getDoc, runTransaction } from 'firebase/firestore';
 import '../App.css';
 import { Toaster, toast } from "sonner";
 import { getFunctions, httpsCallable } from 'firebase/functions';
@@ -113,8 +113,9 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
   const lidarComTokenExpirado = () => {
     localStorage.removeItem('googleToken');
-    toast.error("Sua sessão do Google Calendar expirou por segurança. Você será redirecionado para fazer login novamente.");
-    signOut(auth); 
+    sessionStorage.removeItem('googleToken');
+    // A expiração do token da Agenda Google não deve encerrar a sessão principal do Firebase.
+    toast.error("A autorização do Google Agenda expirou. Sua sessão no sistema continua ativa; a sincronização da agenda precisa ser reconectada.");
   };
 
   useEffect(() => {
@@ -178,7 +179,8 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
               setDiasBloqueadosConfig(dados.diasBloqueados);
           }
 
-          if (dados.mensagemLembrete) setMensagemLembreteConfig(dados.mensagemLembrete);
+          const mensagemSalva = dados.configuracoesGlobais?.mensagemLembrete ?? dados.mensagemLembrete;
+          if (typeof mensagemSalva === 'string') setMensagemLembreteConfig(mensagemSalva);
           
           if (dados.minutosAvisoPrevioAgenda !== undefined) {
             setTempoLembreteConfig(dados.minutosAvisoPrevioAgenda);
@@ -197,71 +199,76 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   }, [perfil?.companyId]);
 
   async function efetuarConclusao(agenda: Agendamento, isAuto = false) {
-    if (agenda.status === 'concluido') return; 
+    if (agenda.status === 'concluido' || !perfil?.companyId) return;
 
     try {
-      let transacaoId = '';
-      if (perfil?.companyId) {
-        const docRef = await addDoc(collection(db, 'financas'), {
-          descricao: `Serviço${isAuto ? ' (Automático)' : ''}: ${agenda.servicoNome} - Cliente: ${agenda.clienteNome}`,
+      const agendaRef = doc(db, 'agendamentos', agenda.id);
+      // Um ID financeiro estável impede que duas execuções/telas criem duas entradas para o mesmo atendimento.
+      const transacaoRef = doc(db, 'financas', `agenda_${agenda.id}`);
+      const descricaoTransacao = `Serviço${isAuto ? ' (Automático)' : ''}: ${agenda.servicoNome} - Cliente: ${agenda.clienteNome}`;
+      const concluiuAgora = await runTransaction(db, async (transaction) => {
+        const agendaAtualSnap = await transaction.get(agendaRef);
+        if (!agendaAtualSnap.exists()) return false;
+
+        const agendaAtual = agendaAtualSnap.data();
+        if (agendaAtual.status === 'concluido') return false;
+
+        transaction.set(transacaoRef, {
+          descricao: descricaoTransacao,
           valor: agenda.preco,
           tipo: 'entrada',
           data: new Date().toISOString(),
           companyId: perfil.companyId,
-          origem: 'agenda'
+          origem: 'agenda',
+          agendamentoId: agenda.id
         });
-        transacaoId = docRef.id;
-        
-        const idsDosServicos = agenda.servicoIds && agenda.servicoIds.length > 0 ? agenda.servicoIds : [agenda.servicoId];
-        
-        for (const sId of idsDosServicos) {
-          const servicoRef = doc(db, 'servicos', sId);
-          const servicoSnap = await getDoc(servicoRef);
-          
-          if (servicoSnap.exists()) {
-            const dadosServico = servicoSnap.data();
-            const materiais = dadosServico.materiaisConsumidos || [];
+        transaction.update(agendaRef, {
+          status: 'concluido',
+          bloquearConclusaoAuto: false,
+          transacaoCaixaId: transacaoRef.id
+        });
+        return true;
+      });
 
-            for (const mat of materiais) {
-                const nomeMaterial = mat.nomeMaterial;
-                const qtdConsumida = parseFloat(mat.quantidade) || 0;
+      // Outra aba/intervalo já concluiu este atendimento. Não repetir caixa nem estoque.
+      if (!concluiuAgora) return;
 
-                if (nomeMaterial && qtdConsumida > 0) {
-                    const qEstoque = query(
-                    collection(db, 'estoque'), 
-                    where('companyId', '==', perfil.companyId),
-                    where('nome', '==', nomeMaterial)
-                  );
-                  const querySnapshot = await getDocs(qEstoque);
-                  
-                  if (!querySnapshot.empty) {
-                      const itemEstoque = querySnapshot.docs[0];
-                      const qtdAtual = itemEstoque.data().quantidade;
-                      await updateDoc(doc(db, 'estoque', itemEstoque.id), {
-                          quantidade: Math.max(0, qtdAtual - qtdConsumida)
-                      });
-                  }
-                }
-            }
-          }
+      // Consumo de estoque ocorre somente para a execução que concluiu o atendimento.
+      const idsDosServicos = agenda.servicoIds && agenda.servicoIds.length > 0 ? agenda.servicoIds : [agenda.servicoId];
+      for (const sId of idsDosServicos) {
+        const servicoSnap = await getDoc(doc(db, 'servicos', sId));
+        if (!servicoSnap.exists()) continue;
+
+        const materiais = servicoSnap.data().materiaisConsumidos || [];
+        for (const mat of materiais) {
+          const nomeMaterial = mat.nomeMaterial;
+          const qtdConsumida = parseFloat(mat.quantidade) || 0;
+          if (!nomeMaterial || qtdConsumida <= 0) continue;
+
+          const qEstoque = query(
+            collection(db, 'estoque'),
+            where('companyId', '==', perfil.companyId),
+            where('nome', '==', nomeMaterial)
+          );
+          const querySnapshot = await getDocs(qEstoque);
+          if (querySnapshot.empty) continue;
+
+          const itemEstoque = querySnapshot.docs[0];
+          const qtdAtual = Number(itemEstoque.data().quantidade) || 0;
+          await updateDoc(doc(db, 'estoque', itemEstoque.id), {
+            quantidade: Math.max(0, qtdAtual - qtdConsumida)
+          });
         }
       }
 
-      await updateDoc(doc(db, 'agendamentos', agenda.id), { 
-          status: 'concluido',
-          bloquearConclusaoAuto: false, 
-          transacaoCaixaId: transacaoId 
-      });
-
       if (!isAuto) toast.success("Serviço concluído com sucesso! Caixa e Estoque atualizados.");
-
     } catch (erro) {
-      if (!isAuto) toast.error("Houve um erro ao tentar concluir o serviço no caixa.");
+      if (!isAuto) toast.error("Não foi possível concluir o atendimento. Verifique a conexão e tente novamente.");
       console.error("Erro ao concluir serviço:", erro);
     }
   }
 
-  async function efetuarReversao(agenda: Agendamento, silent = false) {
+    async function efetuarReversao(agenda: Agendamento, silent = false) {
     if (agenda.status !== 'concluido') return;
 
     try {
