@@ -71,7 +71,7 @@ async function getUser(req) {
   }
 }
 function oauthRedirectUri(req) {
-  return process.env.GOOGLE_REDIRECT_URI || `https://${req.headers.host}/api/google-calendar-oauth?action=callback`;
+  return process.env.GOOGLE_REDIRECT_URI || `https://${req.headers.host}/api/google-calendar-callback`;
 }
 function htmlCallback(success, message, appOrigin) {
   const origin = JSON.stringify(appOrigin);
@@ -92,7 +92,7 @@ export default async function handler(req, res) {
       const user = await getUser(req);
       const nonce = randomBytes(24).toString('base64url');
       const state = signState({ uid: user.uid, email: user.email || '', nonce, exp: Date.now() + 10 * 60 * 1000 });
-      res.setHeader('Set-Cookie', `agenda_google_oauth_state=${encodeURIComponent(nonce)}; HttpOnly; Secure; SameSite=Lax; Path=/api/google-calendar-oauth; Max-Age=600`);
+      res.setHeader('Set-Cookie', `agenda_google_oauth_state=${encodeURIComponent(nonce)}; HttpOnly; Secure; SameSite=Lax; Path=/api/; Max-Age=600`);
       const params = new URLSearchParams({
         client_id: clientId,
         redirect_uri: redirectUri,
@@ -108,7 +108,7 @@ export default async function handler(req, res) {
 
     if (action === 'callback') {
       if (req.method !== 'GET') return res.status(405).send('Método não permitido.');
-      res.setHeader('Set-Cookie', 'agenda_google_oauth_state=; HttpOnly; Secure; SameSite=Lax; Path=/api/google-calendar-oauth; Max-Age=0');
+      res.setHeader('Set-Cookie', 'agenda_google_oauth_state=; HttpOnly; Secure; SameSite=Lax; Path=/api/; Max-Age=0');
       try {
         if (req.query?.error) throw new Error('O Google cancelou a autorização.');
         const state = verifyState(req.query?.state);
