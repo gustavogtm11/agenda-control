@@ -127,10 +127,10 @@ export default async function handler(req, res) {
           scope: tokens.scope || 'https://www.googleapis.com/auth/calendar.events',
           updatedAt: new Date().toISOString(),
         });
-        return res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').send(htmlCallback(true, 'Autorização salva com segurança. Você já pode fechar esta janela.'));
+        res.statusCode = 200; res.setHeader('Content-Type', 'text/html; charset=utf-8'); return res.end(htmlCallback(true, 'Autorização salva com segurança. Você já pode fechar esta janela.'));
       } catch (error) {
         console.error('[google-calendar-oauth callback]', error);
-        return res.status(400).setHeader('Content-Type', 'text/html; charset=utf-8').send(htmlCallback(false, error.message || 'Erro ao conectar.'));
+        res.statusCode = 400; res.setHeader('Content-Type', 'text/html; charset=utf-8'); return res.end(htmlCallback(false, error.message || 'Erro ao conectar.'));
       }
     }
 
