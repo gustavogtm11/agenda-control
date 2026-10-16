@@ -85,6 +85,9 @@ export function ModuloAutomacaoWhatsApp({ perfil }: ModuloAutomacaoProps) {
   const [statusConexao, setStatusConexao] = useState<'verificando' | 'desconectado' | 'conectado'>('desconectado');
   const [campoFocado, setCampoFocado] = useState<CamposTexto>('msgBoasVindas');
   const [config, setConfig] = useState<ConfigWhatsApp>(CONFIG_PADRAO);
+  const [numeroTeste, setNumeroTeste] = useState('');
+  const [mensagemTeste, setMensagemTeste] = useState('Esta é uma mensagem de teste do sistema de atendimento.');
+  const [enviandoTeste, setEnviandoTeste] = useState(false);
 
   useEffect(() => {
     if (perfil?.companyId) void carregarConfiguracoes();
@@ -199,6 +202,40 @@ export function ModuloAutomacaoWhatsApp({ perfil }: ModuloAutomacaoProps) {
     }
   };
 
+  const enviarMensagemTeste = async () => {
+    if (!perfil?.companyId) {
+      showToast('Não foi possível identificar a empresa.', 'error');
+      return;
+    }
+    const numero = numeroTeste.replace(/\\D/g, '');
+    const texto = mensagemTeste.trim();
+    if (numero.length < 10 || numero.length > 15) {
+      showToast('Informe um número válido com DDD e código do país, se necessário.', 'error');
+      return;
+    }
+    if (!texto || texto.length > 4000) {
+      showToast('Digite uma mensagem de até 4000 caracteres.', 'error');
+      return;
+    }
+    if (statusConexao !== 'conectado') {
+      showToast('Conecte o WhatsApp antes de enviar a mensagem de teste.', 'error');
+      return;
+    }
+    setEnviandoTeste(true);
+    try {
+      await evolutionFetch('/message/sendText/' + encodeURIComponent(perfil.companyId), 'POST', {
+        number: numero,
+        textMessage: { text: texto },
+      });
+      showToast('Mensagem de teste enviada para ' + numero + '.', 'success');
+    } catch (error) {
+      console.error('[WhatsApp] Erro ao enviar mensagem de teste:', error);
+      showToast(error instanceof Error ? error.message : 'Não foi possível enviar a mensagem de teste.', 'error');
+    } finally {
+      setEnviandoTeste(false);
+    }
+  };
+
   const atualizarTexto = (campo: CamposTexto, valor: string) => {
     setConfig((atual) => ({ ...atual, [campo]: valor }));
   };
@@ -281,6 +318,30 @@ export function ModuloAutomacaoWhatsApp({ perfil }: ModuloAutomacaoProps) {
             Salvar configuração
           </button>
         </div>
+      </section>
+
+      <section style={{ border: '1px solid #bbf7d0', borderRadius: 12, padding: 16, marginBottom: 18, background: '#f0fdf4' }}>
+        <h3 style={{ margin: '0 0 6px', fontSize: 16, color: '#166534' }}>Enviar mensagem de teste</h3>
+        <p style={{ margin: '0 0 14px', color: '#475569', fontSize: 13, lineHeight: 1.5 }}>
+          Envie uma mensagem manual para confirmar se a instância conectada consegue entregar mensagens. Informe o número com DDD; você também pode incluir o código do país (55).
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, alignItems: 'end' }}>
+          <label style={{ display: 'grid', gap: 6, fontSize: 13, fontWeight: 700 }}>
+            Número de WhatsApp
+            <input type="tel" value={numeroTeste} onChange={(e) => setNumeroTeste(e.target.value)} placeholder="Ex.: 5587999999999" autoComplete="tel"
+              style={{ width: '100%', boxSizing: 'border-box', padding: 11, borderRadius: 8, border: '1px solid #cbd5e1', font: 'inherit', background: '#fff', color: '#0f172a' }} />
+          </label>
+          <label style={{ display: 'grid', gap: 6, fontSize: 13, fontWeight: 700 }}>
+            Texto da mensagem
+            <input type="text" value={mensagemTeste} onChange={(e) => setMensagemTeste(e.target.value)} maxLength={4000} placeholder="Digite a mensagem que será enviada"
+              style={{ width: '100%', boxSizing: 'border-box', padding: 11, borderRadius: 8, border: '1px solid #cbd5e1', font: 'inherit', background: '#fff', color: '#0f172a' }} />
+          </label>
+          <button type="button" onClick={() => void enviarMensagemTeste()} disabled={enviandoTeste || carregando || statusConexao !== 'conectado'}
+            style={{ ...botaoStyle, minHeight: 42, background: '#15803d', borderColor: '#15803d', color: '#fff', opacity: enviandoTeste || carregando || statusConexao !== 'conectado' ? .6 : 1 }}>
+            {enviandoTeste ? 'Enviando...' : 'Enviar mensagem de teste'}
+          </button>
+        </div>
+        {statusConexao !== 'conectado' && <p style={{ margin: '10px 0 0', color: '#92400e', fontSize: 12 }}>Para enviar, primeiro conecte o WhatsApp e confirme que o status está como conectado.</p>}
       </section>
 
       <section style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 16, marginBottom: 18, background: '#f8fafc' }}>
