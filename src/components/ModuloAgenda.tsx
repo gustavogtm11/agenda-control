@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { db, auth } from '../config/firebase'; 
-import { signOut } from 'firebase/auth'; 
 import { collection, addDoc, updateDoc, deleteDoc, query, where, onSnapshot, orderBy, doc, getDocs, getDoc, runTransaction } from 'firebase/firestore';
 import '../App.css';
 import { Toaster, toast } from "sonner";
