@@ -31,6 +31,7 @@ export async function obterTokenGooglePersistente(forcarRenovacao = false): Prom
       return dados.accessToken;
     }
     if (resposta.status === 409) {
+      window.dispatchEvent(new CustomEvent('google-calendar-authorization-required'));
       // Compatibilidade durante a migração: mantém o token antigo enquanto o usuário ainda não concluiu a conexão persistente.
       return tokenSalvo || null;
     }
