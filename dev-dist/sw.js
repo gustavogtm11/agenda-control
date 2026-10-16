@@ -69,7 +69,6 @@ if (!self.define) {
 }
 define(['./workbox-aeb6ecaf'], (function (workbox) { 'use strict';
 
-  importScripts("https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js");
   self.skipWaiting();
   workbox.clientsClaim();
   /**
@@ -87,7 +86,7 @@ define(['./workbox-aeb6ecaf'], (function (workbox) { 'use strict';
   workbox.cleanupOutdatedCaches();
   workbox.registerRoute(new workbox.NavigationRoute(workbox.createHandlerBoundToURL("index.html"), {
     allowlist: [/^\/$/],
-    denylist: [/^\/_/, /firestore\.googleapis\.com/, /firebase-messaging-sw\.js$/]
+    denylist: [/^\/_/, /firestore\.googleapis\.com/, ]
   }));
   workbox.registerRoute(/^https:\/\/firestore\.googleapis\.com\/.*/i, new workbox.NetworkOnly({
     "cacheName": "firebase-firestore",

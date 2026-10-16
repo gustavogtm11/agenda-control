@@ -59,7 +59,7 @@ const horariosPadrao: HorariosFuncionamento = {
 const mensagemPadrao = `*Lembrete de Agendamento*\n\nOlá, *{primeiroNome}*! Tudo bem? \nPassando aqui para confirmar o seu horário conosco.\n\n*Data:* {data}\n*Horário:* {hora}\n*Serviço:* {servico}\n*Profissional:* {profissional}\n\nSe precisar remarcar, por favor, nos avise com antecedência.\nAté logo!`;
 
 export function ModuloConfiguracoes({ perfil }: ModuloConfiguracoesProps) {
-  const [abaAtiva, setAbaAtiva] = useState<'expediente' | 'bloqueios' | 'mensagens' | 'notificacoes'>('expediente');
+  const [abaAtiva, setAbaAtiva] = useState<'expediente' | 'bloqueios' | 'mensagens'>('expediente');
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
   const { showToast } = useToast();
@@ -69,19 +69,6 @@ export function ModuloConfiguracoes({ perfil }: ModuloConfiguracoesProps) {
   const [diasBloqueados, setDiasBloqueados] = useState<string[]>([]);
   const [novoDiaBloqueado, setNovoDiaBloqueado] = useState('');
   const [mensagemLembrete, setMensagemLembrete] = useState(mensagemPadrao);
-  
-  // CORREÇÃO: Verificação segura para evitar crash em dispositivos sem suporte a notificações
-  const [permissaoNotificacao, setPermissaoNotificacao] = useState<string>(
-    typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'denied'
-  );
-  
-  const [notificacaoAgendaAtiva, setNotificacaoAgendaAtiva] = useState(true);
-  const [minutosAvisoPrevioAgenda, setMinutosAvisoPrevioAgenda] = useState<number>(30); 
-  const [notificacaoCaixaAtiva, setNotificacaoCaixaAtiva] = useState(true);
-  const [horarioFechamentoCaixa, setHorarioFechamentoCaixa] = useState('18:00');
-  const [notificacaoDividasAtiva, setNotificacaoDividasAtiva] = useState(true);
-  const [qtdLembretesDivida, setQtdLembretesDivida] = useState(1);
-  const [horariosLembreteDivida, setHorariosLembreteDivida] = useState<string[]>(['08:00']);
   
   const [salvando, setSalvando] = useState(false);
 
@@ -106,13 +93,6 @@ export function ModuloConfiguracoes({ perfil }: ModuloConfiguracoesProps) {
           if (dados.horarioAlmoco) setAlmoco(dados.horarioAlmoco);
           if (dados.diasBloqueados) setDiasBloqueados(dados.diasBloqueados);
           if (dados.mensagemLembrete) setMensagemLembrete(dados.mensagemLembrete);
-          if (dados.notificacaoAgendaAtiva !== undefined) setNotificacaoAgendaAtiva(dados.notificacaoAgendaAtiva);
-          if (dados.minutosAvisoPrevioAgenda !== undefined) setMinutosAvisoPrevioAgenda(dados.minutosAvisoPrevioAgenda);
-          if (dados.notificacaoCaixaAtiva !== undefined) setNotificacaoCaixaAtiva(dados.notificacaoCaixaAtiva);
-          if (dados.horarioFechamentoCaixa) setHorarioFechamentoCaixa(dados.horarioFechamentoCaixa);
-          if (dados.notificacaoDividasAtiva !== undefined) setNotificacaoDividasAtiva(dados.notificacaoDividasAtiva);
-          if (dados.qtdLembretesDivida !== undefined) setQtdLembretesDivida(dados.qtdLembretesDivida);
-          if (dados.horariosLembreteDivida) setHorariosLembreteDivida(dados.horariosLembreteDivida);
         }
       } catch (error) {
         console.error("Erro ao carregar configurações:", error);
@@ -121,20 +101,6 @@ export function ModuloConfiguracoes({ perfil }: ModuloConfiguracoesProps) {
     carregarConfiguracoes();
   }, [perfil?.companyId]);
 
-  const solicitarPermissaoNotificacao = async () => {
-    if (!("Notification" in window)) {
-      showToast("Este navegador não suporta notificações de desktop/mobile.", 'error');
-      return;
-    }
-    const permissao = await Notification.requestPermission();
-    setPermissaoNotificacao(permissao);
-    if (permissao === 'granted') {
-        new Notification("Tudo certo!", { body: "As notificações do sistema estão ativadas." });
-        showToast("Notificações ativadas com sucesso!", 'success');
-    } else if (permissao === 'denied') {
-        showToast("Você bloqueou as notificações. Para ativar, altere as permissões do navegador.", 'error');
-    }
-  };
 
   const handleChange = (dia: DiaSemana, campo: keyof HorarioDia, valor: any) => {
     setHorarios(prev => ({ ...prev, [dia]: { ...prev[dia], [campo]: valor } }));
@@ -164,20 +130,6 @@ export function ModuloConfiguracoes({ perfil }: ModuloConfiguracoesProps) {
     setDiasBloqueados(diasBloqueados.filter(d => d !== diaRemover));
   };
 
-  const handleQtdLembretesChange = (novaQtd: number) => {
-    setQtdLembretesDivida(novaQtd);
-    const novosHorarios = [...horariosLembreteDivida];
-    while (novosHorarios.length < novaQtd) {
-        novosHorarios.push('12:00'); 
-    }
-    setHorariosLembreteDivida(novosHorarios.slice(0, novaQtd));
-  };
-
-  const atualizarHorarioDivida = (index: number, valor: string) => {
-    const novos = [...horariosLembreteDivida];
-    novos[index] = valor;
-    setHorariosLembreteDivida(novos);
-  };
 
   async function salvarConfiguracoes(e: React.FormEvent) {
     e.preventDefault();
@@ -192,13 +144,6 @@ export function ModuloConfiguracoes({ perfil }: ModuloConfiguracoesProps) {
             horarioAlmoco: almoco,
             diasBloqueados,
             mensagemLembrete,
-            notificacaoAgendaAtiva,
-            minutosAvisoPrevioAgenda,
-            notificacaoCaixaAtiva,
-            horarioFechamentoCaixa,
-            notificacaoDividasAtiva,
-            qtdLembretesDivida,
-            horariosLembreteDivida,
         };
         const empresaRef = doc(db, "empresas", perfil.companyId);
         await setDoc(empresaRef, { configuracoesGlobais: dadosConfig }, { merge: true });
@@ -233,7 +178,6 @@ export function ModuloConfiguracoes({ perfil }: ModuloConfiguracoesProps) {
               <option value="expediente">🕒 Expediente</option>
               <option value="bloqueios">🔒 Dias Fechados</option>
               <option value="mensagens">💬 Mensagens</option>
-              <option value="notificacoes">🔔 Notificações</option>
             </select>
           </div>
         ) : (
@@ -241,7 +185,6 @@ export function ModuloConfiguracoes({ perfil }: ModuloConfiguracoesProps) {
               <button type="button" onClick={() => setAbaAtiva('expediente')} style={tabStyle('expediente')}>🕒 Expediente</button>
               <button type="button" onClick={() => setAbaAtiva('bloqueios')} style={tabStyle('bloqueios')}>🔒 Dias Fechados</button>
               <button type="button" onClick={() => setAbaAtiva('mensagens')} style={tabStyle('mensagens')}>💬 Mensagens</button>
-              <button type="button" onClick={() => setAbaAtiva('notificacoes')} style={tabStyle('notificacoes')}>🔔 Notificações</button>
           </div>
         )}
 
@@ -316,101 +259,6 @@ export function ModuloConfiguracoes({ perfil }: ModuloConfiguracoesProps) {
                     ))}
                 </div>
                 <textarea value={mensagemLembrete} onChange={(e) => setMensagemLembrete(e.target.value)} style={{ ...inputStyle, height: '250px', resize: 'vertical', fontFamily: 'monospace', lineHeight: '1.5', padding: '15px' }} />
-                </div>
-            )}
-
-            {abaAtiva === 'notificacoes' && (
-                <div style={{ animation: 'fadeIn 0.3s' }}>
-                    <div style={{ backgroundColor: '#f9fbfd', padding: '20px', borderRadius: '8px', border: '1px solid #e1e8ed', marginBottom: '20px' }}>
-                        <h4 style={{ margin: '0 0 15px 0', color: '#34495e' }}>📱 Permissão do Dispositivo</h4>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px', background: '#ffffff', borderRadius: '8px', border: '1px solid #bdc3c7', flexWrap: 'wrap', gap: '15px' }}>
-                            <div>
-                                <strong style={{ color: permissaoNotificacao === 'granted' ? '#27ae60' : '#e74c3c', fontSize: '15px', display: 'block', marginBottom: '5px' }}>
-                                    Status Atual: {permissaoNotificacao === 'granted' ? 'Autorizado ✅' : permissaoNotificacao === 'denied' ? 'Bloqueado ❌' : 'Não Solicitado ⚠️'}
-                                </strong>
-                                <p style={{ margin: '0', fontSize: '13px', color: '#7f8c8d' }}>
-                                    *No iPhone/iPad, você deve adicionar o site à "Tela de Início" antes de permitir.
-                                </p>
-                            </div>
-                            <button 
-                                type="button" 
-                                onClick={solicitarPermissaoNotificacao} 
-                                disabled={permissaoNotificacao === 'granted'}
-                                style={{ padding: '12px 20px', backgroundColor: permissaoNotificacao === 'granted' ? '#95a5a6' : '#2980b9', color: 'white', border: 'none', borderRadius: '6px', cursor: permissaoNotificacao === 'granted' ? 'not-allowed' : 'pointer', fontWeight: 'bold', transition: 'opacity 0.2s' }}
-                            >
-                                {permissaoNotificacao === 'granted' ? 'Já Ativado' : 'Ativar Alertas'}
-                            </button>
-                        </div>
-                    </div>
-
-                    <div style={{ backgroundColor: '#f9fbfd', padding: '20px', borderRadius: '8px', border: '1px solid #e1e8ed', marginBottom: '20px' }}>
-                        <h4 style={{ margin: '0 0 15px 0', color: '#34495e' }}>📅 Alertas de Próximo Atendimento</h4>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontWeight: 'bold', color: '#2c3e50' }}>
-                                <input type="checkbox" checked={notificacaoAgendaAtiva} onChange={(e) => setNotificacaoAgendaAtiva(e.target.checked)} style={{ width: '20px', height: '20px', cursor: 'pointer' }} /> 
-                                Avisar antes do cliente chegar
-                            </label>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', opacity: notificacaoAgendaAtiva ? 1 : 0.4, pointerEvents: notificacaoAgendaAtiva ? 'auto' : 'none' }}>
-                                <span style={{ fontSize: '14px', color: '#7f8c8d' }}>Antecedência:</span>
-                                <select 
-                                    value={minutosAvisoPrevioAgenda} 
-                                    onChange={(e) => setMinutosAvisoPrevioAgenda(Number(e.target.value))} 
-                                    style={{...inputStyle, padding: '8px', width: 'auto', cursor: 'pointer'}}
-                                >
-                                    <option value={5}>5 Minutos antes</option>
-                                    <option value={10}>10 Minutos antes</option>
-                                    <option value={15}>15 Minutos antes</option>
-                                    <option value={30}>30 Minutos antes</option>
-                                    <option value={60}>1 Hora antes</option>
-                                    <option value={120}>2 Horas antes</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div style={{ backgroundColor: '#f9fbfd', padding: '20px', borderRadius: '8px', border: '1px solid #e1e8ed', marginBottom: '20px' }}>
-                        <h4 style={{ margin: '0 0 15px 0', color: '#34495e' }}>💰 Alerta de Fechamento de Caixa</h4>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontWeight: 'bold', color: '#2c3e50' }}>
-                                <input type="checkbox" checked={notificacaoCaixaAtiva} onChange={(e) => setNotificacaoCaixaAtiva(e.target.checked)} style={{ width: '20px', height: '20px', cursor: 'pointer' }} /> 
-                                Lembrete diário para fechar o caixa
-                            </label>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', opacity: notificacaoCaixaAtiva ? 1 : 0.4, pointerEvents: notificacaoCaixaAtiva ? 'auto' : 'none' }}>
-                                <span style={{ fontSize: '14px', color: '#7f8c8d' }}>Horário do lembrete:</span>
-                                <input type="time" value={horarioFechamentoCaixa} onChange={(e) => setHorarioFechamentoCaixa(e.target.value)} style={{...inputStyle, padding: '8px', width: 'auto'}} />
-                            </div>
-                        </div>
-                    </div>
-
-                    <div style={{ backgroundColor: '#fdf4f4', padding: '20px', borderRadius: '8px', border: '1px solid #f5b7b1', marginBottom: '20px' }}>
-                        <h4 style={{ margin: '0 0 15px 0', color: '#c0392b' }}>🔴 Lembretes de Dívidas (Contas a Pagar)</h4>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontWeight: 'bold', color: '#2c3e50' }}>
-                                <input type="checkbox" checked={notificacaoDividasAtiva} onChange={(e) => setNotificacaoDividasAtiva(e.target.checked)} style={{ width: '20px', height: '20px', cursor: 'pointer' }} /> 
-                                Avisar sobre contas vencendo ou atrasadas
-                            </label>
-                            
-                            <div style={{ opacity: notificacaoDividasAtiva ? 1 : 0.4, pointerEvents: notificacaoDividasAtiva ? 'auto' : 'none', display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                                <div>
-                                    <span style={{ fontSize: '14px', color: '#7f8c8d', display: 'block', marginBottom: '8px' }}>Quantas vezes notificar ao dia?</span>
-                                    <select value={qtdLembretesDivida} onChange={(e) => handleQtdLembretesChange(Number(e.target.value))} style={{...inputStyle, width: '150px', padding: '10px', cursor: 'pointer'}}>
-                                        <option value={1}>1 vez</option>
-                                        <option value={2}>2 vezes</option>
-                                        <option value={3}>3 vezes</option>
-                                    </select>
-                                </div>
-
-                                <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
-                                    {horariosLembreteDivida.map((horario, index) => (
-                                        <div key={index} style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#ffffff', padding: '10px', borderRadius: '6px', border: '1px solid #bdc3c7' }}>
-                                            <span style={{ fontSize: '14px', fontWeight: 'bold' }}>Horário {index + 1}:</span>
-                                            <input type="time" value={horario} onChange={(e) => atualizarHorarioDivida(index, e.target.value)} style={{...inputStyle, padding: '6px', width: 'auto', border: 'none', background: 'transparent', boxShadow: 'none'}} />
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
                 </div>
             )}
 

@@ -8,9 +8,8 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       
-      // 1. REGISTRA OS ARQUIVOS COMO ATIVOS ESTÁTICOS DO PWA
-      // 💡 REMOVIDO: 'OneSignalSDKWorker.js' já que o importScripts fará o trabalho
-      includeAssets: ['favicon.png', 'pwa-512x512.png', 'firebase-messaging-sw.js'],
+      // Mantém os arquivos estáticos necessários para instalação do PWA.
+      includeAssets: ['favicon.png', 'pwa-512x512.png'],
       
       manifest: {
         name: 'Sistema de Agendamentos',
@@ -39,18 +38,13 @@ export default defineConfig({
       },
       
       workbox: {
-        // 💡 ADICIONADO: Importa o Worker do OneSignal para dentro do sw.js gerado pelo Vite PWA
-        importScripts: ['https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js'],
-
         globPatterns: ['**/*.{js,css,html,ico,png,svg,wasm}'],
         cleanupOutdatedCaches: true,
 
         // 2. IMPEDE O WORKBOX DE ENTREGAR O index.html NO LUGAR DOS SERVICE WORKERS
         navigateFallbackDenylist: [
           /^\/_/, 
-          /firestore\.googleapis\.com/,
-          /firebase-messaging-sw\.js$/
-          // 💡 REMOVIDO o OneSignalSDKWorker daqui também
+          /firestore\.googleapis\.com/
         ],
         
         runtimeCaching: [
