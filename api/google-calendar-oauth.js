@@ -38,6 +38,12 @@ function signState(payload) {
   const signature = createHmac('sha256', required('GOOGLE_OAUTH_STATE_SECRET')).update(encoded).digest('base64url');
   return encoded + '.' + signature;
 }
+function cookieValue(req, name) {
+  const cookies = String(req.headers.cookie || '').split(';');
+  const prefix = name + '=';
+  const entry = cookies.map(value => value.trim()).find(value => value.startsWith(prefix));
+  return entry ? decodeURIComponent(entry.slice(prefix.length)) : '';
+}
 function verifyState(state) {
   const [encoded, signature] = String(state || '').split('.');
   if (!encoded || !signature) throw new Error('Estado OAuth inválido.');
@@ -86,6 +92,7 @@ export default async function handler(req, res) {
       const user = await getUser(req);
       const nonce = randomBytes(24).toString('base64url');
       const state = signState({ uid: user.uid, email: user.email || '', nonce, exp: Date.now() + 10 * 60 * 1000 });
+      res.setHeader('Set-Cookie', `agenda_google_oauth_state=${encodeURIComponent(nonce)}; HttpOnly; Secure; SameSite=Lax; Path=/api/google-calendar-oauth; Max-Age=600`);
       const params = new URLSearchParams({
         client_id: clientId,
         redirect_uri: redirectUri,
@@ -101,9 +108,12 @@ export default async function handler(req, res) {
 
     if (action === 'callback') {
       if (req.method !== 'GET') return res.status(405).send('Método não permitido.');
+      res.setHeader('Set-Cookie', 'agenda_google_oauth_state=; HttpOnly; Secure; SameSite=Lax; Path=/api/google-calendar-oauth; Max-Age=0');
       try {
         if (req.query?.error) throw new Error('O Google cancelou a autorização.');
         const state = verifyState(req.query?.state);
+        const cookieNonce = cookieValue(req, 'agenda_google_oauth_state');
+        if (!cookieNonce || cookieNonce !== state.nonce) throw new Error('A sessão de autorização não confere. Feche esta janela e tente conectar novamente pelo Agenda Control.');
         const code = String(req.query?.code || '');
         if (!code) throw new Error('O Google não retornou o código de autorização.');
         const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
