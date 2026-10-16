@@ -39,16 +39,20 @@ function normalizarTelefone(valor) {
   return String(valor || '').replace(/@s\.whatsapp\.net|@c\.us|@lid/g, '').replace(/\D/g, '');
 }
 function extrairMensagem(payload) {
-  const message = payload?.data?.message || {};
+  // Evolution 1.x costuma enviar data.message; alguns builds envelopam a mensagem de outra forma.
+  const message = payload?.data?.message || payload?.message?.message || payload?.message || {};
   return String(
     message.conversation ||
     message.extendedTextMessage?.text ||
     message.imageMessage?.caption ||
     message.videoMessage?.caption ||
+    message.documentMessage?.caption ||
     message.buttonsResponseMessage?.selectedDisplayText ||
     message.buttonsResponseMessage?.selectedButtonId ||
     message.listResponseMessage?.title ||
     message.listResponseMessage?.singleSelectReply?.selectedRowId ||
+    message.templateButtonReplyMessage?.selectedDisplayText ||
+    message.templateButtonReplyMessage?.selectedId ||
     ''
   ).trim();
 }
