@@ -1,21 +1,82 @@
 // src/components/ModuloAutomacaoWhatsApp.tsx
 
-import { useState, useEffect } from 'react';
-import { db } from '../config/firebase';
+import { useEffect, useState } from 'react';
+import { auth, db } from '../config/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { useToast } from '../App';
 
-// ============================================================================
-// CONFIGURAÇÕES GLOBAIS DA SUA EVOLUTION API (Fixo no código)
-// ============================================================================
-const EVOLUTION_API_URL = "http://localhost:8080/"; 
-const EVOLUTION_API_KEY = "150215"; 
+// A chave da Evolution permanece no proxy/servidor e nunca é enviada ao navegador.
+async function evolutionFetch(path: string, method: 'GET' | 'POST', body?: unknown) {
+  const usuario = auth.currentUser;
+  if (!usuario) throw new Error('Sua sessão expirou. Entre novamente.');
+  const token = await usuario.getIdToken();
+  const response = await fetch('/api/evolution' + path, {
+    method,
+    headers: {
+      Authorization: 'Bearer ' + token,
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  const texto = await response.text();
+  let data: any = {};
+  try { data = texto ? JSON.parse(texto) : {}; } catch { data = { message: texto }; }
+  if (!response.ok) {
+    const detalhe = data.response?.message ?? data.message ?? data.error;
+    const mensagem = Array.isArray(detalhe) ? detalhe.flat(Infinity).join(' | ') : typeof detalhe === 'string' ? detalhe : detalhe ? JSON.stringify(detalhe) : '';
+    throw new Error((mensagem || 'Evolution API respondeu HTTP ' + response.status + '.') + ' (HTTP ' + response.status + ')');
+  }
+  return data;
+}
 
 interface ModuloAutomacaoProps {
   perfil: { companyId: string; role: string } | null;
 }
+type CamposTexto =
+  | 'msgBoasVindas'
+  | 'msgMenuPrincipal'
+  | 'msgServicos'
+  | 'msgData'
+  | 'msgHorario'
+  | 'msgConfirmacao'
+  | 'msgCancelamento'
+  | 'msgAtendente'
+  | 'msgSemAgendamentos'
+  | 'msgConsulta'
+  | 'msgSemHorarios';
 
-type CamposTexto = 'msgBoasVindas' | 'msgServicos' | 'msgData' | 'msgHorario' | 'msgConfirmacao';
+type ConfigWhatsApp = Record<CamposTexto, string> & { ativo: boolean };
+
+const CONFIG_PADRAO: ConfigWhatsApp = {
+  ativo: false,
+  msgBoasVindas: 'Olá {primeiroNome}! 👋 Sou o assistente virtual e vou ajudar você por aqui.',
+  msgMenuPrincipal: 'Como posso ajudar?\n1 - Agendar horário 📅\n2 - Cancelar agendamento ❌\n3 - Consultar meus horários 📋\n4 - Falar com atendente 👤\n\nDigite apenas o número da opção desejada.',
+  msgServicos: 'Ótimo, {primeiroNome}! Qual serviço você deseja realizar? Responda com o número:',
+  msgData: 'Para qual dia você deseja agendar {servico}?',
+  msgHorario: 'Estes são os horários disponíveis para {servico} em {data}. Escolha um número:',
+  msgConfirmacao: 'Agendamento realizado! ✅\n\nServiço: {servico}\nData: {data}\nHorário: {hora}\nValor: {valor}\n\nObrigado, {primeiroNome}! Se precisar, digite MENU.',
+  msgCancelamento: 'Pronto, {primeiroNome}! Seu agendamento de {servico}, em {data} às {hora}, foi cancelado.',
+  msgAtendente: 'Certo, {primeiroNome}! Registrei seu pedido para falar com um atendente. Nossa equipe continuará por aqui assim que possível. Digite MENU para voltar ao robô.',
+  msgSemAgendamentos: 'Não encontrei agendamentos futuros vinculados a este número. Digite 1 para agendar ou MENU para voltar.',
+  msgConsulta: 'Estes são seus próximos horários, {primeiroNome}:',
+  msgSemHorarios: 'Não encontrei horários disponíveis em {data} para {servico}. Informe outra data no formato DD/MM/AAAA:',
+};
+
+const CAMPOS_EDITAVEIS: { campo: CamposTexto; titulo: string; ajuda: string }[] = [
+  { campo: 'msgBoasVindas', titulo: 'Boas-vindas', ajuda: 'Enviada ao iniciar ou reiniciar uma conversa. O menu é enviado logo depois.' },
+  { campo: 'msgMenuPrincipal', titulo: 'Menu principal', ajuda: 'Use os números 1 a 4 na mesma ordem das opções exibidas.' },
+  { campo: 'msgServicos', titulo: 'Escolha do serviço', ajuda: 'A lista de serviços cadastrados é acrescentada automaticamente abaixo deste texto.' },
+  { campo: 'msgData', titulo: 'Escolha da data', ajuda: 'A lista de datas disponíveis é acrescentada automaticamente.' },
+  { campo: 'msgHorario', titulo: 'Escolha do horário', ajuda: 'A lista de horários disponíveis é acrescentada automaticamente.' },
+  { campo: 'msgConfirmacao', titulo: 'Confirmação do agendamento', ajuda: 'Enviada depois de reservar o horário.' },
+  { campo: 'msgCancelamento', titulo: 'Confirmação do cancelamento', ajuda: 'Enviada depois que o agendamento é removido.' },
+  { campo: 'msgAtendente', titulo: 'Transferência para atendimento humano', ajuda: 'A automação pausa para essa conversa até o cliente digitar MENU.' },
+  { campo: 'msgSemAgendamentos', titulo: 'Nenhum agendamento encontrado', ajuda: 'Usada na consulta e no cancelamento quando não há horário futuro vinculado ao telefone.' },
+  { campo: 'msgConsulta', titulo: 'Consulta de horários', ajuda: 'O sistema acrescenta a lista dos próximos agendamentos depois deste texto.' },
+  { campo: 'msgSemHorarios', titulo: 'Data sem disponibilidade', ajuda: 'O cliente poderá informar outra data.' },
+];
+
+const VARIAVEIS_FIXAS = ['{primeiroNome}', '{data}', '{hora}', '{horario}', '{servico}', '{profissional}', '{valor}'];
 
 export function ModuloAutomacaoWhatsApp({ perfil }: ModuloAutomacaoProps) {
   const { showToast } = useToast();
@@ -23,51 +84,105 @@ export function ModuloAutomacaoWhatsApp({ perfil }: ModuloAutomacaoProps) {
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [statusConexao, setStatusConexao] = useState<'verificando' | 'desconectado' | 'conectado'>('desconectado');
   const [campoFocado, setCampoFocado] = useState<CamposTexto>('msgBoasVindas');
+  const [config, setConfig] = useState<ConfigWhatsApp>(CONFIG_PADRAO);
+  const [numeroTeste, setNumeroTeste] = useState('');
+  const [mensagemTeste, setMensagemTeste] = useState('Esta é uma mensagem de teste do sistema de atendimento.');
+  const [enviandoTeste, setEnviandoTeste] = useState(false);
 
-  const variaveis = ['{primeiroNome}', '{data}', '{hora}', '{servico}', '{profissional}'];
-
-  const [config, setConfig] = useState({
-    ativo: false,
-    msgBoasVindas: 'Olá! Sou o assistente virtual do salão. Como posso te ajudar hoje?\n1 - Agendar horário\n2 - Falar com atendente',
-    msgServicos: 'Ótimo! Qual serviço você deseja realizar? Responda com o número:',
-    msgData: 'Para qual data deseja agendar? (Ex: 25/10/2023)',
-    msgHorario: 'Esses são os horários disponíveis. Escolha um número:',
-    msgConfirmacao: 'Perfeito! Seu agendamento está confirmado para {data} às {horario}. Te esperamos!',
-  });
-
-  // CORREÇÃO 1: Monitorar apenas o string ID primitivo para evitar loops de recarregamento
   useEffect(() => {
-    if (perfil?.companyId) {
-      carregarConfiguracoes();
-    }
+    if (perfil?.companyId) void carregarConfiguracoes();
   }, [perfil?.companyId]);
 
   useEffect(() => {
-    if (config.ativo) {
-      verificarStatusConexao();
-    }
-  }, [config.ativo]);
+    if (perfil?.companyId && config.ativo) void verificarStatusConexao();
+  }, [perfil?.companyId, config.ativo]);
 
   const carregarConfiguracoes = async () => {
+    if (!perfil?.companyId) return;
     try {
-      const docRef = doc(db, 'configuracoes_whatsapp', perfil!.companyId);
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        setConfig(prev => ({ ...prev, ...docSnap.data() }));
+      const snapshot = await getDoc(doc(db, 'configuracoes_whatsapp', perfil.companyId));
+      if (snapshot.exists()) {
+        const dados = snapshot.data();
+        setConfig({ ...CONFIG_PADRAO, ...dados, ativo: dados.ativo === true } as ConfigWhatsApp);
       }
     } catch (error) {
-      console.error(error);
+      console.error('[WhatsApp] Erro ao carregar configurações:', error);
+      showToast('Não foi possível carregar as configurações do WhatsApp.', 'error');
     }
   };
 
   const salvarConfiguracoes = async () => {
+    if (!perfil?.companyId) {
+      showToast('Não foi possível identificar a empresa.', 'error');
+      return;
+    }
     setCarregando(true);
     try {
-      const docRef = doc(db, 'configuracoes_whatsapp', perfil!.companyId);
-      await setDoc(docRef, config, { merge: true });
-      showToast('Configurações salvas com sucesso!', 'success');
+      await setDoc(doc(db, 'configuracoes_whatsapp', perfil.companyId), {
+        ...config,
+        atualizadoEm: new Date().toISOString(),
+      }, { merge: true });
+      showToast('Configurações do atendimento salvas!', 'success');
     } catch (error) {
-      showToast('Erro ao salvar configurações.', 'error');
+      console.error('[WhatsApp] Erro ao salvar configurações:', error);
+      showToast('Erro ao salvar configurações. Verifique as permissões do Firestore.', 'error');
+    } finally {
+      setCarregando(false);
+    }
+  };
+
+  const verificarStatusConexao = async () => {
+    if (!perfil?.companyId) return;
+    setStatusConexao('verificando');
+    try {
+      const data = await evolutionFetch('/instance/connectionState/' + encodeURIComponent(perfil.companyId), 'GET');
+      const estado = data?.instance?.state || data?.state || data?.instance?.status;
+      setStatusConexao(estado === 'open' || estado === 'connected' ? 'conectado' : 'desconectado');
+    } catch (error) {
+      console.error('[WhatsApp] Erro ao verificar conexão:', error);
+      setStatusConexao('desconectado');
+    }
+  };
+
+  const gerarQrCode = async () => {
+    if (!perfil?.companyId) {
+      showToast('Empresa não identificada.', 'error');
+      return;
+    }
+    setCarregando(true);
+    setQrCode(null);
+    try {
+      let data: any;
+      try {
+        data = await evolutionFetch('/instance/create', 'POST', {
+          instanceName: perfil.companyId,
+          qrcode: true,
+          integration: 'WHATSAPP-BAILEYS',
+        });
+      } catch (erroCriacao) {
+        try {
+          data = await evolutionFetch('/instance/connect/' + encodeURIComponent(perfil.companyId), 'GET');
+        } catch {
+          throw erroCriacao;
+        }
+      }
+      const valorQr = data?.qrcode?.base64 || data?.base64 || data?.qr?.base64;
+      if (typeof valorQr === 'string' && valorQr) {
+        setQrCode(valorQr.startsWith('data:image') ? valorQr : 'data:image/png;base64,' + valorQr);
+        showToast('QR Code pronto. Escaneie com o WhatsApp da empresa.', 'success');
+        setStatusConexao('desconectado');
+      } else {
+        const estado = await evolutionFetch('/instance/connectionState/' + encodeURIComponent(perfil.companyId), 'GET').catch(() => null);
+        if (estado?.instance?.state === 'open' || estado?.state === 'open') {
+          setStatusConexao('conectado');
+          showToast('O WhatsApp já está conectado!', 'success');
+        } else {
+          showToast('A API não retornou o QR Code. Confira os logs da Evolution e tente novamente.', 'error');
+        }
+      }
+    } catch (error) {
+      console.error('[WhatsApp] Erro ao gerar QR Code:', error);
+      showToast(error instanceof Error ? error.message : 'Erro ao conectar o WhatsApp.', 'error');
     } finally {
       setCarregando(false);
     }
@@ -77,227 +192,223 @@ export function ModuloAutomacaoWhatsApp({ perfil }: ModuloAutomacaoProps) {
     if (!perfil?.companyId) return;
     setCarregando(true);
     try {
-      const baseUrl = EVOLUTION_API_URL.replace(/\/$/, '');
-      const instanceName = perfil.companyId;
-
-      const response = await fetch(`${baseUrl}/webhook/instance/update/${instanceName}`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'apikey': EVOLUTION_API_KEY 
-        },
-        body: JSON.stringify({
-          webhookUrl: "http://192.168.0.X:3000/api/webhook-whatsapp",
-          webhookEvents: ["messages.upsert", "messages.update"]
-        })
-      });
-
-      if (response.ok) {
-        showToast('Webhook sincronizado com sucesso!', 'success');
-      } else {
-        showToast('Erro ao sincronizar Webhook.', 'error');
-      }
+      await evolutionFetch('/webhook/set/' + encodeURIComponent(perfil.companyId), 'POST', {});
+      showToast('Webhook sincronizado. O atendimento automático poderá receber mensagens.', 'success');
     } catch (error) {
-      showToast('Erro de comunicação com o servidor.', 'error');
+      console.error('[WhatsApp] Erro ao sincronizar webhook:', error);
+      showToast(error instanceof Error ? error.message : 'Erro ao sincronizar webhook.', 'error');
     } finally {
       setCarregando(false);
     }
   };
 
-  const verificarStatusConexao = async () => {
+  const verificarWebhook = async () => {
     if (!perfil?.companyId) return;
-    setStatusConexao('verificando');
-    
+    setCarregando(true);
     try {
-      const baseUrl = EVOLUTION_API_URL.replace(/\/$/, '');
-      const instanceName = perfil.companyId;
-
-      const response = await fetch(`${baseUrl}/instance/connectionState/${instanceName}`, {
-        method: 'GET',
-        headers: { 'apikey': EVOLUTION_API_KEY },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setStatusConexao(data?.instance?.state === 'open' ? 'conectado' : 'desconectado');
+      const data = await evolutionFetch('/webhook/find/' + encodeURIComponent(perfil.companyId), 'GET');
+      const ativo = data?.enabled === true || data?.webhook?.enabled === true;
+      const urlConfigurada = typeof data?.url === 'string' || typeof data?.webhook?.url === 'string';
+      const eventos = data?.events || data?.webhook?.events || [];
+      if (ativo && urlConfigurada) {
+        showToast('Webhook ativo. Eventos configurados: ' + (Array.isArray(eventos) ? eventos.join(', ') : 'não informados') + '.', 'success');
       } else {
-        setStatusConexao('desconectado');
+        showToast('A Evolution respondeu, mas o webhook não aparece ativo ou sem URL configurada.', 'error');
       }
     } catch (error) {
-      console.error("Erro ao verificar conexão:", error);
-      setStatusConexao('desconectado');
+      console.error('[WhatsApp] Erro ao consultar webhook:', error);
+      showToast(error instanceof Error ? error.message : 'Não foi possível verificar o webhook.', 'error');
+    } finally {
+      setCarregando(false);
     }
   };
 
-  const gerarQrCode = async () => {
+  const enviarMensagemTeste = async () => {
     if (!perfil?.companyId) {
-      showToast('Erro: Empresa não identificada.', 'error');
+      showToast('Não foi possível identificar a empresa.', 'error');
       return;
     }
-    
-    setCarregando(true);
-    setQrCode(null);
-    
-    try {
-      const baseUrl = EVOLUTION_API_URL.replace(/\/$/, '');
-      const instanceName = perfil.companyId; 
-
-      const responseCreate = await fetch(`${baseUrl}/instance/create`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': EVOLUTION_API_KEY,
-        },
-        body: JSON.stringify({
-          instanceName: instanceName,
-          qrcode: true,
-          integration: "WHATSAPP-BAILEYS"
-        })
-      });
-
-      const dataCreate = await responseCreate.json();
-
-      if (dataCreate?.qrcode?.base64 || dataCreate?.base64) {
-        setQrCode(dataCreate.qrcode?.base64 || dataCreate.base64);
-        showToast('Instância criada e QR Code gerado!', 'success');
-        setCarregando(false);
-        return;
-      }
-
-      const responseConnect = await fetch(`${baseUrl}/instance/connect/${instanceName}`, {
-        method: 'GET',
-        headers: { 'apikey': EVOLUTION_API_KEY },
-      });
-
-      const dataConnect = await responseConnect.json();
-
-      if (dataConnect?.base64) {
-        setQrCode(dataConnect.base64);
-        showToast('QR Code obtido! Escaneie com seu WhatsApp.', 'success');
-      } else if (dataConnect?.instance?.state === 'open') {
-        setStatusConexao('conectado');
-        showToast('O WhatsApp já está conectado!', 'success');
-      } else {
-        showToast('Erro ao buscar o QR Code.', 'error');
-      }
-
-    } catch (error) {
-      console.error(error);
-      showToast('Erro de comunicação com o servidor.', 'error');
-    } finally {
-      setCarregando(false);
+    const numeroInformado = numeroTeste.replace(/\D/g, '');
+    const numero = numeroInformado.length === 10 || numeroInformado.length === 11
+      ? '55' + numeroInformado
+      : numeroInformado;
+    const texto = mensagemTeste.trim();
+    if (numero.length < 10 || numero.length > 15) {
+      showToast('Informe um número válido com DDD e código do país, se necessário.', 'error');
+      return;
     }
+    if (!texto || texto.length > 4000) {
+      showToast('Digite uma mensagem de até 4000 caracteres.', 'error');
+      return;
+    }
+    if (statusConexao !== 'conectado') {
+      showToast('Conecte o WhatsApp antes de enviar a mensagem de teste.', 'error');
+      return;
+    }
+    setEnviandoTeste(true);
+    try {
+      await evolutionFetch('/message/sendText/' + encodeURIComponent(perfil.companyId), 'POST', {
+        number: numero,
+        textMessage: { text: texto },
+      });
+      showToast('Mensagem de teste enviada para ' + numero + '.', 'success');
+    } catch (error) {
+      console.error('[WhatsApp] Erro ao enviar mensagem de teste:', error);
+      showToast(error instanceof Error ? error.message : 'Não foi possível enviar a mensagem de teste.', 'error');
+    } finally {
+      setEnviandoTeste(false);
+    }
+  };
+
+  const atualizarTexto = (campo: CamposTexto, valor: string) => {
+    setConfig((atual) => ({ ...atual, [campo]: valor }));
   };
 
   const adicionarVariavel = (variavel: string) => {
-    setConfig(prev => ({
-      ...prev,
-      [campoFocado]: prev[campoFocado] + ' ' + variavel
-    }));
+    setConfig((atual) => ({ ...atual, [campoFocado]: atual[campoFocado] + variavel }));
   };
 
-  const inputStyle = { width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ccc', marginBottom: '15px' };
+  const inputStyle = {
+    width: '100%',
+    minHeight: 78,
+    boxSizing: 'border-box' as const,
+    padding: 12,
+    borderRadius: 9,
+    border: '1px solid #cbd5e1',
+    background: '#fff',
+    color: '#0f172a',
+    font: 'inherit',
+    lineHeight: 1.5,
+    resize: 'vertical' as const,
+  };
+  const botaoStyle = {
+    border: '1px solid #cbd5e1',
+    borderRadius: 8,
+    padding: '9px 12px',
+    background: '#fff',
+    color: '#334155',
+    cursor: 'pointer',
+    fontWeight: 700,
+  } as const;
+
+  if (!perfil?.companyId) {
+    return <div style={{ padding: 24 }}>Não foi possível identificar a empresa deste usuário.</div>;
+  }
 
   return (
-    <div style={{ padding: '20px', backgroundColor: '#fff', borderRadius: '8px', boxShadow: '0 2px 10px rgba(0,0,0,0.05)' }}>
-      <h2 style={{ marginBottom: '20px', color: '#2c3e50' }}>🤖 Automação de Agendamento (WhatsApp)</h2>
-
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: '20px', padding: '15px', backgroundColor: '#f9fbfd', borderRadius: '8px', border: '1px solid #e1e8ed' }}>
-        <input 
-          type="checkbox" 
-          checked={config.ativo} 
-          onChange={(e) => setConfig({ ...config, ativo: e.target.checked })}
-          style={{ width: '20px', height: '20px', marginRight: '10px', cursor: 'pointer' }}
-        />
-        <label style={{ fontSize: '18px', fontWeight: 'bold', cursor: 'pointer', color: '#2c3e50' }} onClick={() => setConfig({ ...config, ativo: !config.ativo })}>
-          Ativar Atendimento Automatizado (Robô)
+    <div style={{ padding: 22, background: '#fff', borderRadius: 14, boxShadow: '0 4px 24px rgba(15,23,42,.06)', color: '#0f172a' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', marginBottom: 18 }}>
+        <div>
+          <h2 style={{ margin: '0 0 7px', color: '#0f172a' }}>Atendimento automático pelo WhatsApp</h2>
+          <p style={{ margin: 0, color: '#64748b', lineHeight: 1.55, maxWidth: 760 }}>
+            Configure o robô, personalize as mensagens e mantenha o agendamento manual funcionando normalmente no sistema.
+          </p>
+        </div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 10, background: config.ativo ? '#ecfdf5' : '#f1f5f9', color: config.ativo ? '#047857' : '#475569', fontWeight: 800, cursor: 'pointer' }}>
+          <input type="checkbox" checked={config.ativo} onChange={(e) => setConfig((atual) => ({ ...atual, ativo: e.target.checked }))} style={{ width: 18, height: 18 }} />
+          {config.ativo ? 'Robô ativado' : 'Robô desativado'}
         </label>
       </div>
 
-      {config.ativo && (
-        <div style={{ animation: 'fadeIn 0.3s' }}>
-
-          {statusConexao === 'verificando' && (
-            <p style={{ textAlign: 'center', color: '#7f8c8d', padding: '20px' }}>⏳ Verificando status de conexão com o WhatsApp...</p>
-          )}
-
-          {statusConexao === 'desconectado' && (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f9fbfd', padding: '30px', borderRadius: '8px', border: '1px solid #e1e8ed' }}>
-              <h3 style={{ color: '#e74c3c', marginBottom: '15px', textAlign: 'center' }}>WhatsApp Desconectado</h3>
-              <button onClick={gerarQrCode} disabled={carregando} style={{ padding: '12px 20px', backgroundColor: '#25D366', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', width: '100%', maxWidth: '300px', marginBottom: '20px' }}>
-                {carregando ? '⏳ Carregando...' : '📲 Gerar QR Code'}
-              </button>
-              {qrCode && (
-                <div style={{ textAlign: 'center', padding: '15px', backgroundColor: 'white', borderRadius: '8px', border: '1px solid #eee', width: '100%', maxWidth: '300px' }}>
-                  <img src={qrCode} alt="QR Code WhatsApp" style={{ width: '100%', height: 'auto', borderRadius: '8px' }} />
-                </div>
-              )}
-            </div>
-          )}
-
-          {statusConexao === 'conectado' && (
-            <div style={{ backgroundColor: '#f9fbfd', padding: '20px', borderRadius: '8px', border: '1px solid #e1e8ed' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                <h3 style={{ color: '#27ae60', margin: 0 }}>✅ WhatsApp Conectado</h3>
-                <div style={{ display: 'flex', gap: '10px' }}>
-                    <button onClick={registrarWebhook} style={{ background: '#9b59b6', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
-                        🔄 Sincronizar Webhook
-                    </button>
-                    <button onClick={verificarStatusConexao} style={{ background: 'transparent', border: '1px solid #bdc3c7', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
-                        ↻ Atualizar
-                    </button>
-                </div>
-              </div>
-
-              <hr style={{ margin: '20px 0', borderColor: '#ecf0f1' }} />
-              
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '20px' }}>
-                {variaveis.map(variavel => (
-                  <span 
-                    key={variavel} 
-                    // CORREÇÃO 2: onMouseDown com preventDefault impede o campo de perder o foco
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      adicionarVariavel(variavel);
-                    }} 
-                    style={{ background: '#ecf0f1', padding: '6px 12px', borderRadius: '20px', fontSize: '13px', cursor: 'pointer', fontWeight: 'bold' }} 
-                  >
-                    {variavel}
-                  </span>
-                ))}
-              </div>
-
-              <label style={{ fontWeight: 'bold', fontSize: '12px', color: '#7f8c8d' }}>Mensagem de Boas-vindas</label>
-              <textarea value={config.msgBoasVindas} onChange={e => setConfig({...config, msgBoasVindas: e.target.value})} onFocus={() => setCampoFocado('msgBoasVindas')} style={{...inputStyle, height: '70px', resize: 'none'}} />
-
-              <label style={{ fontWeight: 'bold', fontSize: '12px', color: '#7f8c8d' }}>Pedido de Serviço</label>
-              <textarea value={config.msgServicos} onChange={e => setConfig({...config, msgServicos: e.target.value})} onFocus={() => setCampoFocado('msgServicos')} style={{...inputStyle, height: '50px', resize: 'none'}} />
-
-              <label style={{ fontWeight: 'bold', fontSize: '12px', color: '#7f8c8d' }}>Pedido de Data</label>
-              <textarea value={config.msgData} onChange={e => setConfig({...config, msgData: e.target.value})} onFocus={() => setCampoFocado('msgData')} style={{...inputStyle, height: '50px', resize: 'none'}} />
-
-              <label style={{ fontWeight: 'bold', fontSize: '12px', color: '#7f8c8d' }}>Pedido de Horário</label>
-              <textarea value={config.msgHorario} onChange={e => setConfig({...config, msgHorario: e.target.value})} onFocus={() => setCampoFocado('msgHorario')} style={{...inputStyle, height: '50px', resize: 'none'}} />
-
-              <label style={{ fontWeight: 'bold', fontSize: '12px', color: '#7f8c8d' }}>Confirmação Final</label>
-              <textarea value={config.msgConfirmacao} onChange={e => setConfig({...config, msgConfirmacao: e.target.value})} onFocus={() => setCampoFocado('msgConfirmacao')} style={{...inputStyle, height: '70px', resize: 'none'}} />
+      <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 20 }}>
+        <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 16 }}>
+          <div style={{ fontWeight: 800, marginBottom: 6 }}>Conexão</div>
+          <div style={{ color: statusConexao === 'conectado' ? '#047857' : statusConexao === 'verificando' ? '#a16207' : '#b91c1c', fontWeight: 700, marginBottom: 12 }}>
+            {statusConexao === 'conectado' ? '● WhatsApp conectado' : statusConexao === 'verificando' ? '● Verificando conexão...' : '● WhatsApp desconectado'}
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            <button type="button" onClick={gerarQrCode} disabled={carregando} style={{ ...botaoStyle, background: '#16a34a', borderColor: '#16a34a', color: '#fff' }}>
+              {carregando ? 'Aguarde...' : 'Gerar / atualizar QR Code'}
+            </button>
+            <button type="button" onClick={verificarStatusConexao} disabled={carregando} style={botaoStyle}>Verificar</button>
+          </div>
+          {qrCode && statusConexao !== 'conectado' && (
+            <div style={{ marginTop: 14, textAlign: 'center' }}>
+              <img src={qrCode} alt="QR Code de conexão do WhatsApp" style={{ width: 230, maxWidth: '100%', border: '1px solid #e2e8f0', borderRadius: 10 }} />
+              <p style={{ color: '#64748b', fontSize: 12, marginBottom: 0 }}>WhatsApp → Dispositivos conectados → Conectar dispositivo.</p>
             </div>
           )}
         </div>
-      )}
 
-      {config.ativo && (
-        <>
-          <hr style={{ margin: '30px 0', borderColor: '#ecf0f1' }} />
-          <button 
-            onClick={salvarConfiguracoes} 
-            disabled={carregando} 
-            style={{ padding: '15px 30px', backgroundColor: '#3498db', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', width: '100%', cursor: 'pointer' }}
-          >
-            {carregando ? 'Salvando...' : '💾 Salvar Configurações'}
+        <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 16 }}>
+          <div style={{ fontWeight: 800, marginBottom: 6 }}>Recebimento de mensagens</div>
+          <p style={{ color: '#64748b', fontSize: 13, lineHeight: 1.5, marginTop: 0 }}>
+            O webhook precisa apontar para uma URL HTTPS pública. O navegador local não pode receber chamadas diretamente da Evolution.
+          </p>
+          <button type="button" onClick={registrarWebhook} disabled={carregando || statusConexao !== 'conectado'} style={{ ...botaoStyle, background: '#7c3aed', color: '#fff', borderColor: '#7c3aed', opacity: carregando || statusConexao !== 'conectado' ? .6 : 1 }}>
+            {carregando ? 'Sincronizando...' : 'Sincronizar webhook'}
           </button>
-        </>
-      )}
+          <button type="button" onClick={() => void verificarWebhook()} disabled={carregando} style={{ ...botaoStyle, marginLeft: 8, opacity: carregando ? .6 : 1 }}>
+            Verificar webhook
+          </button>
+          <button type="button" onClick={() => void salvarConfiguracoes()} disabled={carregando} style={{ ...botaoStyle, marginLeft: 8 }}>
+            Salvar configuração
+          </button>
+        </div>
+      </section>
+
+      <section style={{ border: '1px solid #bbf7d0', borderRadius: 12, padding: 16, marginBottom: 18, background: '#f0fdf4' }}>
+        <h3 style={{ margin: '0 0 6px', fontSize: 16, color: '#166534' }}>Enviar mensagem de teste</h3>
+        <p style={{ margin: '0 0 14px', color: '#475569', fontSize: 13, lineHeight: 1.5 }}>
+          Envie uma mensagem manual para confirmar se a instância conectada consegue entregar mensagens. Informe o número com DDD; você também pode incluir o código do país (55).
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, alignItems: 'end' }}>
+          <label style={{ display: 'grid', gap: 6, fontSize: 13, fontWeight: 700 }}>
+            Número de WhatsApp
+            <input type="tel" value={numeroTeste} onChange={(e) => setNumeroTeste(e.target.value)} placeholder="Ex.: 5587999999999" autoComplete="tel"
+              style={{ width: '100%', boxSizing: 'border-box', padding: 11, borderRadius: 8, border: '1px solid #cbd5e1', font: 'inherit', background: '#fff', color: '#0f172a' }} />
+          </label>
+          <label style={{ display: 'grid', gap: 6, fontSize: 13, fontWeight: 700 }}>
+            Texto da mensagem
+            <input type="text" value={mensagemTeste} onChange={(e) => setMensagemTeste(e.target.value)} maxLength={4000} placeholder="Digite a mensagem que será enviada"
+              style={{ width: '100%', boxSizing: 'border-box', padding: 11, borderRadius: 8, border: '1px solid #cbd5e1', font: 'inherit', background: '#fff', color: '#0f172a' }} />
+          </label>
+          <button type="button" onClick={() => void enviarMensagemTeste()} disabled={enviandoTeste || carregando || statusConexao !== 'conectado'}
+            style={{ ...botaoStyle, minHeight: 42, background: '#15803d', borderColor: '#15803d', color: '#fff', opacity: enviandoTeste || carregando || statusConexao !== 'conectado' ? .6 : 1 }}>
+            {enviandoTeste ? 'Enviando...' : 'Enviar mensagem de teste'}
+          </button>
+        </div>
+        {statusConexao !== 'conectado' && <p style={{ margin: '10px 0 0', color: '#92400e', fontSize: 12 }}>Para enviar, primeiro conecte o WhatsApp e confirme que o status está como conectado.</p>}
+      </section>
+
+      <section style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 16, marginBottom: 18, background: '#f8fafc' }}>
+        <h3 style={{ margin: '0 0 6px', fontSize: 16 }}>Variáveis dinâmicas fixas</h3>
+        <p style={{ margin: '0 0 12px', color: '#64748b', fontSize: 13 }}>
+          Clique em uma variável para inseri-la no campo de texto selecionado. Os nomes das variáveis são fixos; você personaliza apenas as mensagens.
+        </p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {VARIAVEIS_FIXAS.map((variavel) => (
+            <button key={variavel} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => adicionarVariavel(variavel)} style={{ ...botaoStyle, background: '#ede9fe', borderColor: '#ddd6fe', color: '#5b21b6' }}>
+              {variavel}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
+        {CAMPOS_EDITAVEIS.map(({ campo, titulo, ajuda }) => (
+          <label key={campo} style={{ display: 'grid', alignContent: 'start', gap: 7, fontWeight: 800, fontSize: 14 }}>
+            {titulo}
+            <textarea
+              value={config[campo]}
+              onChange={(e) => atualizarTexto(campo, e.target.value)}
+              onFocus={() => setCampoFocado(campo)}
+              style={inputStyle}
+              aria-label={titulo}
+            />
+            <span style={{ color: '#64748b', fontSize: 12, fontWeight: 400, lineHeight: 1.5 }}>{ajuda}</span>
+          </label>
+        ))}
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', borderTop: '1px solid #e2e8f0', marginTop: 22, paddingTop: 18 }}>
+        <p style={{ margin: 0, color: '#64748b', fontSize: 12, lineHeight: 1.5 }}>
+          O fluxo usa os serviços e horários cadastrados da empresa. A opção de agendamento manual continua disponível no módulo Agenda.
+        </p>
+        <button type="button" onClick={salvarConfiguracoes} disabled={carregando} style={{ ...botaoStyle, padding: '12px 20px', background: '#0f766e', borderColor: '#0f766e', color: '#fff', opacity: carregando ? .65 : 1 }}>
+          {carregando ? 'Salvando...' : 'Salvar mensagens e automação'}
+        </button>
+      </div>
     </div>
   );
 }

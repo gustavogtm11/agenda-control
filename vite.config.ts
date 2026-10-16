@@ -1,75 +1,123 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
-export default defineConfig({
-  plugins: [
-    react(),
-    VitePWA({
-      registerType: 'autoUpdate',
-      
-      // 1. REGISTRA OS ARQUIVOS COMO ATIVOS ESTÁTICOS DO PWA
-      // 💡 REMOVIDO: 'OneSignalSDKWorker.js' já que o importScripts fará o trabalho
-      includeAssets: ['favicon.png', 'pwa-512x512.png', 'firebase-messaging-sw.js'],
-      
-      manifest: {
-        name: 'Sistema de Agendamentos',
-        short_name: 'Gestão Inteligente',
-        theme_color: '#ffffff',
-        background_color: '#ffffff',
-        display: 'standalone',
-        icons:[
-          {
-            src: 'favicon.png',
-            sizes: '192x192',
-            type: 'image/png'
-          },
-          {
-            src: 'pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'any maskable'
-          }
-        ]
-      },
+export default defineConfig(({ mode }) => {
+  // EVOLUTION_API_KEY fica somente no ambiente do servidor de desenvolvimento.
+  // Não use prefixo VITE_ para segredos.
+  const env = loadEnv(mode, process.cwd(), '');
 
-      devOptions: {
-        enabled: true,
-        type: 'module',
-      },
-      
-      workbox: {
-        // 💡 ADICIONADO: Importa o Worker do OneSignal para dentro do sw.js gerado pelo Vite PWA
-        importScripts: ['https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js'],
-
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,wasm}'],
-        cleanupOutdatedCaches: true,
-
-        // 2. IMPEDE O WORKBOX DE ENTREGAR O index.html NO LUGAR DOS SERVICE WORKERS
-        navigateFallbackDenylist: [
-          /^\/_/, 
-          /firestore\.googleapis\.com/,
-          /firebase-messaging-sw\.js$/
-          // 💡 REMOVIDO o OneSignalSDKWorker daqui também
-        ],
-        
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/firestore\.googleapis\.com\/.*/i,
-            handler: 'NetworkOnly',
-            options: {
-              cacheName: 'firebase-firestore',
+  return {
+    plugins: [
+      react(),
+      VitePWA({
+        registerType: 'autoUpdate',
+        includeAssets: ['favicon.png', 'pwa-512x512.png', 'firebase-messaging-sw.js'],
+        manifest: {
+          name: 'Sistema de Agendamentos',
+          short_name: 'Gestão Inteligente',
+          theme_color: '#ffffff',
+          background_color: '#ffffff',
+          display: 'standalone',
+          icons: [
+            { src: 'favicon.png', sizes: '192x192', type: 'image/png' },
+            { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+          ],
+        },
+        devOptions: { enabled: true, type: 'module' },
+        workbox: {
+          importScripts: ['https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js'],
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,wasm}'],
+          cleanupOutdatedCaches: true,
+          navigateFallbackDenylist: [/^\/_/, /firestore\.googleapis\.com/, /firebase-messaging-sw\.js$/],
+          runtimeCaching: [
+            {
+              urlPattern: /^https:\/\/firestore\.googleapis\.com\/.*/i,
+              handler: 'NetworkOnly',
+              options: { cacheName: 'firebase-firestore' },
             },
-          },
-          {
-            urlPattern: /^https:\/\/securetoken\.googleapis\.com\/.*/i,
-            handler: 'NetworkOnly',
-            options: {
-              cacheName: 'firebase-auth',
+            {
+              urlPattern: /^https:\/\/securetoken\.googleapis\.com\/.*/i,
+              handler: 'NetworkOnly',
+              options: { cacheName: 'firebase-auth' },
             },
+          ],
+        },
+      }),
+    ],
+    server: {
+      configureServer(server) {
+        // Intercepta a configuração do webhook para injetar a URL somente no servidor local.
+        // Assim o segredo do webhook e a chave Evolution não entram no bundle React.
+        server.middlewares.use('/api/evolution/webhook/set', async (req, res, next) => {
+          if (req.method !== 'POST') return next();
+          const instanceName = String(req.url || '').split('?')[0].replace(/^\/+/, '');
+          if (!/^[a-zA-Z0-9_-]{1,100}$/.test(instanceName)) return next();
+          if (!env.WHATSAPP_WEBHOOK_URL) {
+            res.statusCode = 503;
+            res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            res.end(JSON.stringify({ error: 'Configure WHATSAPP_WEBHOOK_URL no .env.local para ativar o recebimento de mensagens.' }));
+            return;
           }
-        ],
+
+          try {
+            const chunks = [];
+            for await (const chunk of req) chunks.push(Buffer.from(chunk));
+            const target = String(env.EVOLUTION_API_URL || 'https://evolution-api-free-test.onrender.com').replace(/\/$/, '');
+            const targetUrl = `${target}/webhook/set/${encodeURIComponent(instanceName)}`;
+            const headers = {
+              apikey: env.EVOLUTION_API_KEY || '',
+              'Content-Type': 'application/json',
+            };
+            const eventos = ['MESSAGES_UPSERT', 'MESSAGES_UPDATE'];
+            // A instalação configurada é Evolution 1.8.2: tentar primeiro o formato plano
+            // documentado para essa geração; o envelope aninhado fica como fallback para v2.
+            const payloads = [
+              { enabled: true, url: env.WHATSAPP_WEBHOOK_URL, webhookByEvents: false, webhookBase64: false, events: eventos },
+              { enabled: true, url: env.WHATSAPP_WEBHOOK_URL, webhook_by_events: false, webhook_base64: false, events: eventos },
+              { webhook: { enabled: true, url: env.WHATSAPP_WEBHOOK_URL, byEvents: false, base64: false, events: eventos } },
+            ];
+            let upstream = await fetch(targetUrl, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify(payloads[0]),
+            });
+            let responseText = await upstream.text();
+            for (const payload of payloads.slice(1)) {
+              if (upstream.ok || ![400, 422].includes(upstream.status)) break;
+              upstream = await fetch(targetUrl, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(payload),
+              });
+              responseText = await upstream.text();
+            }
+            res.statusCode = upstream.status;
+            res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/json; charset=utf-8');
+            res.end(responseText || '{}');
+          } catch (error) {
+            console.error('[Vite Evolution webhook proxy]', error);
+            res.statusCode = 502;
+            res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            res.end(JSON.stringify({ error: 'Não foi possível configurar o webhook da Evolution API.' }));
+          }
+        });
       },
-    }),
-  ],
+      proxy: {
+        '/api/evolution': {
+          target: env.EVOLUTION_API_URL || 'https://evolution-api-free-test.onrender.com',
+          changeOrigin: true,
+          secure: true,
+          rewrite: (path) => path.replace(/^\/api\/evolution/, ''),
+          configure: (proxy) => {
+            proxy.on('proxyReq', (proxyReq) => {
+              if (env.EVOLUTION_API_KEY) {
+                proxyReq.setHeader('apikey', env.EVOLUTION_API_KEY);
+              }
+            });
+          },
+        },
+      },
+    },
+  };
 });

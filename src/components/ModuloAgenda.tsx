@@ -16,7 +16,9 @@ interface Servico { id: string; nome: string; preco: number; duracaoMinutos: num
 interface Funcionario { email: string; nome: string; }
 interface Agendamento {
   id: string; 
-  clienteNome: string; 
+  clienteNome: string;
+  telefone?: string;
+  clienteTelefone?: string;
   servicoId: string; 
   servicoNome: string;
   servicoIds?: string[]; 
@@ -24,7 +26,8 @@ interface Agendamento {
   preco: number; 
   dataHora: string; 
   duracaoMinutos: number; 
-  status: 'pendente' | 'concluido';
+  status: 'pendente' | 'concluido' | 'cancelado';
+  cancelamentoPendenteGoogle?: boolean;
   googleEventId?: string; 
   googleSyncPending?: boolean; 
   transacaoCaixaId?: string; 
@@ -88,10 +91,12 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   const [mostrarFormulario, setMostrarFormulario] = useState(false);
   const salvandoAgendamentoRef = useRef(false);
   const agendamentosCriadosRef = useRef<Set<string>>(new Set());
+  const cancelamentosGoogleProcessandoRef = useRef<Set<string>>(new Set());
   const [salvandoAgendamento, setSalvandoAgendamento] = useState(false);
 
   const [idEmEdicao, setIdEmEdicao] = useState<string | null>(null);
   const [cliente, setCliente] = useState('');
+  const [telefoneCliente, setTelefoneCliente] = useState('');
   const [dataForm, setDataForm] = useState(dataDeHoje());
   const [horaForm, setHoraForm] = useState('08:00');
   
@@ -144,11 +149,49 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
       setFuncionarios(lista);
     });
 
+    const processarCancelamentoGoogle = async (agendamentoId: string, dados: any) => {
+      if (!dados.googleEventId) {
+        await deleteDoc(doc(db, 'agendamentos', agendamentoId)).catch((error) => {
+          console.error('[WhatsApp] Não foi possível limpar agendamento cancelado:', error);
+        });
+        return;
+      }
+      if (cancelamentosGoogleProcessandoRef.current.has(agendamentoId)) return;
+      cancelamentosGoogleProcessandoRef.current.add(agendamentoId);
+      try {
+        const tokenGoogle = obterTokenGoogle();
+        if (!tokenGoogle || !navigator.onLine) return;
+        const resposta = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(dados.googleEventId)}?sendUpdates=all`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${tokenGoogle}` },
+        });
+        if (resposta.status === 401) {
+          lidarComTokenExpirado();
+          return;
+        }
+        if (resposta.ok || resposta.status === 404 || resposta.status === 410) {
+          await deleteDoc(doc(db, 'agendamentos', agendamentoId));
+        } else {
+          console.error('[WhatsApp] Google Calendar não confirmou o cancelamento:', resposta.status, await resposta.text());
+          toast.error('O agendamento foi cancelado no sistema, mas a sincronização com Google Agenda precisa ser tentada novamente.');
+        }
+      } catch (error) {
+        console.error('[WhatsApp] Falha ao sincronizar cancelamento com Google Agenda:', error);
+        toast.error('O agendamento foi cancelado no sistema, mas a sincronização com Google Agenda ficou pendente.');
+      } finally {
+        cancelamentosGoogleProcessandoRef.current.delete(agendamentoId);
+      }
+    };
+
     const unsubAgendamentos = onSnapshot(query(collection(db, 'agendamentos'), where('companyId', '==', perfil.companyId), orderBy('dataHora', 'asc')), (snapshot) => {
       const lista: Agendamento[] = [];
-      snapshot.forEach(doc => {
-        const d = doc.data();
-        lista.push({ id: doc.id, ...d } as Agendamento);
+      snapshot.forEach((documento) => {
+        const d = documento.data();
+        if (d.status === 'cancelado') {
+          void processarCancelamentoGoogle(documento.id, d);
+          return;
+        }
+        lista.push({ id: documento.id, ...d } as Agendamento);
       });
       setAgendamentos(lista);
     });
@@ -765,6 +808,12 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     const nomesDosServicos = listaServicosEscolhidos.map(s => s.nome).join(', ');
 
     const funcEscolhido = funcionarios.find(f => f.email === emailFuncionarioSelecionado);
+    const telefoneNormalizado = (() => {
+      const digitos = telefoneCliente.replace(/\D/g, '');
+      if (!digitos) return '';
+      if (digitos.startsWith('55')) return digitos;
+      return digitos.length === 10 || digitos.length === 11 ? '55' + digitos : digitos;
+    })();
     const dataHoraIso = `${dataForm}T${horaForm}`;
     const dataHoraAtendimento = new Date(`${dataHoraIso}:00`);
 
@@ -809,7 +858,10 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
       try {
         await updateDoc(doc(db, 'agendamentos', idEmEdicao), {
-            clienteNome: cliente, dataHora: dataHoraIso, 
+            clienteNome: cliente,
+            telefone: telefoneNormalizado || null,
+            clienteTelefone: telefoneNormalizado || null,
+            dataHora: dataHoraIso,
             servicoId: servicoIdsSelecionados[0], 
             servicoNome: nomesDosServicos,
             servicoIds: servicoIdsSelecionados,
@@ -831,7 +883,10 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
       try {
         await addDoc(collection(db, 'agendamentos'), {
-            clienteNome: cliente, dataHora: dataHoraIso, 
+            clienteNome: cliente,
+            telefone: telefoneNormalizado || null,
+            clienteTelefone: telefoneNormalizado || null,
+            dataHora: dataHoraIso,
             servicoId: servicoIdsSelecionados[0], 
             servicoNome: nomesDosServicos,
             servicoIds: servicoIdsSelecionados,
@@ -851,7 +906,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
       }
     }
 
-    setCliente(''); setServicoIdsSelecionados([]); setEmailFuncionarioSelecionado(''); setIdEmEdicao(null); setIsEncaixeAtivo(false);
+    setCliente(''); setTelefoneCliente(''); setServicoIdsSelecionados([]); setEmailFuncionarioSelecionado(''); setIdEmEdicao(null); setIsEncaixeAtivo(false);
     setDataVisaoDiaria(dataForm); 
     setMostrarFormulario(false);
     } finally {
@@ -863,6 +918,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   function prepararEdicao(agenda: Agendamento) {
     setIdEmEdicao(agenda.id);
     setCliente(agenda.clienteNome);
+    setTelefoneCliente(agenda.telefone || agenda.clienteTelefone || '');
     setDataForm(agenda.dataHora.split('T')[0]);
     setHoraForm(agenda.dataHora.split('T')[1]);
     
@@ -873,8 +929,9 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   }
 
   function cancelarEdicao() {
-    setIdEmEdicao(null); 
-    setCliente(''); 
+    setIdEmEdicao(null);
+    setCliente('');
+    setTelefoneCliente('');
     setServicoIdsSelecionados([]); 
     setIsEncaixeAtivo(false);
     setMostrarFormulario(false);
@@ -1027,6 +1084,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', flex: '1 1 100%' }}>
                 <input type="text" placeholder="Nome do Cliente" value={cliente} onChange={e => setCliente(e.target.value)} style={{ ...inputStyle, flex: '1 1 200px' }} />
+                <input type="tel" placeholder="WhatsApp com DDD (opcional)" value={telefoneCliente} onChange={e => setTelefoneCliente(e.target.value.replace(/\D/g, ''))} style={{ ...inputStyle, flex: '1 1 190px' }} aria-label="WhatsApp do cliente para cancelamento automático" />
                 <input type="date" value={dataForm} onChange={e => setDataForm(e.target.value)} style={{ ...inputStyle, flex: '1 1 130px' }} />
                 
                 <select value={horaForm} onChange={e => setHoraForm(e.target.value)} disabled={diaEstaBloqueado} style={{ ...inputStyle, flex: '1 1 120px', backgroundColor: diaEstaBloqueado ? '#f5f5f5' : 'var(--bg-input)' }}>
