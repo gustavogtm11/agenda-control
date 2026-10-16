@@ -67,8 +67,8 @@ async function getUser(req) {
 function oauthRedirectUri(req) {
   return process.env.GOOGLE_REDIRECT_URI || `https://${req.headers.host}/api/google-calendar-oauth?action=callback`;
 }
-function htmlCallback(success, message) {
-  const origin = JSON.stringify(process.env.APP_ORIGIN || '');
+function htmlCallback(success, message, appOrigin) {
+  const origin = JSON.stringify(appOrigin);
   const payload = JSON.stringify({ type: 'agenda-control-google-oauth', success, message });
   return `<!doctype html><html lang="pt-BR"><meta charset="utf-8"><title>Google Agenda</title><body style="font:16px system-ui;padding:32px;text-align:center"><h2>${success ? 'Google Agenda conectado' : 'Não foi possível conectar'}</h2><p>${message}</p><script>try{if(window.opener){window.opener.postMessage(${payload},${origin});}}catch(e){}setTimeout(()=>window.close(),900)</script></body></html>`;
 }
@@ -127,10 +127,10 @@ export default async function handler(req, res) {
           scope: tokens.scope || 'https://www.googleapis.com/auth/calendar.events',
           updatedAt: new Date().toISOString(),
         });
-        res.statusCode = 200; res.setHeader('Content-Type', 'text/html; charset=utf-8'); return res.end(htmlCallback(true, 'Autorização salva com segurança. Você já pode fechar esta janela.'));
+        res.statusCode = 200; res.setHeader('Content-Type', 'text/html; charset=utf-8'); return res.end(htmlCallback(true, 'Autorização salva com segurança. Você já pode fechar esta janela.', process.env.APP_ORIGIN || new URL(redirectUri).origin));
       } catch (error) {
         console.error('[google-calendar-oauth callback]', error);
-        res.statusCode = 400; res.setHeader('Content-Type', 'text/html; charset=utf-8'); return res.end(htmlCallback(false, error.message || 'Erro ao conectar.'));
+        res.statusCode = 400; res.setHeader('Content-Type', 'text/html; charset=utf-8'); return res.end(htmlCallback(false, error.message || 'Erro ao conectar.', process.env.APP_ORIGIN || new URL(redirectUri).origin));
       }
     }
 
