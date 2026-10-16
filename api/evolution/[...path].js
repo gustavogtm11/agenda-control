@@ -55,6 +55,7 @@ export default async function handler(req, res) {
     const createRoute = path === '/instance/create' && req.method === 'POST';
     const connectMatch = path.match(/^\/instance\/(connect|connectionState)\/([a-zA-Z0-9_-]{1,100})$/);
     const webhookMatch = path.match(/^\/webhook\/set\/([a-zA-Z0-9_-]{1,100})$/);
+    const sendTextMatch = path.match(/^\\/message\\/sendText\\/([a-zA-Z0-9_-]{1,100})$/);
 
     if (createRoute) {
       instanceName = String(req.body?.instanceName || '');
@@ -73,6 +74,19 @@ export default async function handler(req, res) {
       instanceName = webhookMatch[1];
       if (!isSuperAdmin && (!companyId || instanceName !== companyId)) {
         return sendJson(res, 403, { error: 'Você só pode configurar o WhatsApp da sua empresa.' });
+      }
+    } else if (sendTextMatch && req.method === 'POST') {
+      instanceName = sendTextMatch[1];
+      if (!isSuperAdmin && (!companyId || instanceName !== companyId)) {
+        return sendJson(res, 403, { error: 'Você só pode enviar mensagens pelo WhatsApp da sua empresa.' });
+      }
+      const number = String(req.body?.number || '').replace(/\\D/g, '');
+      const messageText = String(req.body?.textMessage?.text || req.body?.text || '').trim();
+      if (number.length < 10 || number.length > 15) {
+        return sendJson(res, 400, { error: 'Informe um número de WhatsApp válido com DDD e código do país, se necessário.' });
+      }
+      if (!messageText || messageText.length > 4000) {
+        return sendJson(res, 400, { error: 'A mensagem deve conter entre 1 e 4000 caracteres.' });
       }
     } else if (path === '/instance/fetchInstances' && req.method === 'GET' && isSuperAdmin) {
       // Somente o admin geral pode listar instâncias globais.
@@ -93,6 +107,13 @@ export default async function handler(req, res) {
         instanceName,
         qrcode: true,
         integration: 'WHATSAPP-BAILEYS',
+      };
+    } else if (sendTextMatch) {
+      upstreamBody = {
+        number: String(req.body?.number || '').replace(/\\D/g, ''),
+        textMessage: {
+          text: String(req.body?.textMessage?.text || req.body?.text || '').trim(),
+        },
       };
     }
     let webhookUrl = '';
