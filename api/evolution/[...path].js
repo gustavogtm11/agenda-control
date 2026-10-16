@@ -24,7 +24,7 @@ export default async function handler(req, res) {
     initializeFirebaseAdmin();
 
     const authHeader = req.headers.authorization || '';
-    const match = authHeader.match(/^Bearer\\s+(.+)$/i);
+    const match = authHeader.match(/^Bearer\s+(.+)$/i);
     if (!match) return sendJson(res, 401, { error: 'Sessão ausente. Faça login novamente.' });
 
     const decoded = await getAuth().verifyIdToken(match[1]);
@@ -43,7 +43,7 @@ export default async function handler(req, res) {
       .filter(Boolean);
 
     const path = '/' + parts.join('/');
-    const apiBase = String(process.env.EVOLUTION_API_URL || '').replace(/\\/$/, '');
+    const apiBase = String(process.env.EVOLUTION_API_URL || '').replace(/\/$/, '');
     const apiKey = process.env.EVOLUTION_API_KEY;
 
     if (!apiBase || !apiKey) {
@@ -53,10 +53,10 @@ export default async function handler(req, res) {
     // Somente rotas necessárias para conectar e consultar a instância são aceitas.
     let instanceName = '';
     const createRoute = path === '/instance/create' && req.method === 'POST';
-    const connectMatch = path.match(/^\\/instance\\/(connect|connectionState)\\/([a-zA-Z0-9_-]{1,100})$/);
-    const webhookMatch = path.match(/^\\/webhook\\/set\\/([a-zA-Z0-9_-]{1,100})$/);
-    const webhookFindMatch = path.match(/^\\/webhook\\/find\\/([a-zA-Z0-9_-]{1,100})$/);
-    const sendTextMatch = path.match(/^\\/message\\/sendText\\/([a-zA-Z0-9_-]{1,100})$/);
+    const connectMatch = path.match(/^\/instance\/(connect|connectionState)\/([a-zA-Z0-9_-]{1,100})$/);
+    const webhookMatch = path.match(/^\/webhook\/set\/([a-zA-Z0-9_-]{1,100})$/);
+    const webhookFindMatch = path.match(/^\/webhook\/find\/([a-zA-Z0-9_-]{1,100})$/);
+    const sendTextMatch = path.match(/^\/message\/sendText\/([a-zA-Z0-9_-]{1,100})$/);
 
     if (createRoute) {
       instanceName = String(req.body?.instanceName || '');
@@ -86,7 +86,7 @@ export default async function handler(req, res) {
       if (!isSuperAdmin && (!companyId || instanceName !== companyId)) {
         return sendJson(res, 403, { error: 'Você só pode enviar mensagens pelo WhatsApp da sua empresa.' });
       }
-      const numberInput = String(req.body?.number || '').replace(/\\D/g, '');
+      const numberInput = String(req.body?.number || '').replace(/\D/g, '');
       const number = numberInput.length === 10 || numberInput.length === 11 ? '55' + numberInput : numberInput;
       const messageText = String(req.body?.textMessage?.text || req.body?.text || '').trim();
       if (number.length < 10 || number.length > 15) {
@@ -118,7 +118,7 @@ export default async function handler(req, res) {
     } else if (sendTextMatch) {
       upstreamBody = {
         number: (() => {
-          const value = String(req.body?.number || '').replace(/\\D/g, '');
+          const value = String(req.body?.number || '').replace(/\D/g, '');
           return value.length === 10 || value.length === 11 ? '55' + value : value;
         })(),
         textMessage: {
@@ -130,12 +130,12 @@ export default async function handler(req, res) {
     let webhookSecretHash = '';
     if (webhookMatch) {
       // Em deployments Vercel, usa o domínio desta implantação/preview.
-      const deploymentHost = String(process.env.VERCEL_URL || '').replace(/^https?:\\/\\//, '').replace(/\\/$/, '');
+      const deploymentHost = String(process.env.VERCEL_URL || '').replace(/^https?:\/\//, '').replace(/\/$/, '');
       const configuredBase = String(process.env.WHATSAPP_WEBHOOK_BASE_URL || '').trim();
       const webhookBaseUrl = deploymentHost
         ? 'https://' + deploymentHost + '/api/webhook-whatsapp'
-        : configuredBase.replace(/\\/$/, '');
-      if (!webhookBaseUrl || !/^https:\\/\\//i.test(webhookBaseUrl)) {
+        : configuredBase.replace(/\/$/, '');
+      if (!webhookBaseUrl || !/^https:\/\//i.test(webhookBaseUrl)) {
         return sendJson(res, 503, { error: 'Não foi possível determinar a URL HTTPS pública desta implantação para o webhook. Configure WHATSAPP_WEBHOOK_BASE_URL ou use uma implantação Vercel.' });
       }
 
@@ -144,13 +144,11 @@ export default async function handler(req, res) {
       webhookSecretHash = createHash('sha256').update(webhookSecret).digest('hex');
       webhookUrl = webhookBaseUrl + '?secret=' + encodeURIComponent(webhookSecret);
       upstreamBody = {
-        webhook: {
-          enabled: true,
-          url: webhookUrl,
-          byEvents: false,
-          base64: false,
-          events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
-        },
+        enabled: true,
+        url: webhookUrl,
+        headers: {},
+        base64: false,
+        events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
       };
     }
 
@@ -162,15 +160,13 @@ export default async function handler(req, res) {
     let upstream;
     let text;
     if (webhookMatch) {
-      // Algumas versões da Evolution esperam a configuração dentro de "webhook".
+      // Configuração flat documentada pela Evolution para webhook por instância.
       const webhookPayload = {
-        webhook: {
-          enabled: true,
-          url: webhookUrl,
-          byEvents: false,
-          base64: false,
-          events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
-        },
+        enabled: true,
+        url: webhookUrl,
+        headers: {},
+        base64: false,
+        events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
       };
       upstream = await fetch(url, {
         method: 'POST',
@@ -180,7 +176,7 @@ export default async function handler(req, res) {
       text = await upstream.text();
 
       if (upstream.ok) {
-        await db.collection('whatsapp_webhook_secrets').doc(instanceName).set({
+        await db().collection('whatsapp_webhook_secrets').doc(instanceName).set({
           secretHash: webhookSecretHash,
           instanceName,
           updatedAt: new Date().toISOString(),
