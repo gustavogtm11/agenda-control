@@ -80,7 +80,7 @@ export default async function handler(req, res) {
       if (!isSuperAdmin && (!companyId || instanceName !== companyId)) {
         return sendJson(res, 403, { error: 'Você só pode enviar mensagens pelo WhatsApp da sua empresa.' });
       }
-      const numberInput = String(req.body?.number || '').replace(/\\D/g, '');
+      const numberInput = String(req.body?.number || '').replace(/\D/g, '');
       const number = numberInput.length === 10 || numberInput.length === 11 ? '55' + numberInput : numberInput;
       const messageText = String(req.body?.textMessage?.text || req.body?.text || '').trim();
       if (number.length < 10 || number.length > 15) {
@@ -112,7 +112,7 @@ export default async function handler(req, res) {
     } else if (sendTextMatch) {
       upstreamBody = {
         number: (() => {
-          const value = String(req.body?.number || '').replace(/\\D/g, '');
+          const value = String(req.body?.number || '').replace(/\D/g, '');
           return value.length === 10 || value.length === 11 ? '55' + value : value;
         })(),
         textMessage: {
