@@ -234,10 +234,10 @@ export default function App() {
       try {
         if (user) {
           const ultimaAtividade = Number(localStorage.getItem('@App:lastActivity') || 0);
-          const prazoInatividade = 30 * 24 * 60 * 60 * 1000;
+          const prazoInatividade = 7 * 24 * 60 * 60 * 1000;
 
           // Encerra a sessão somente se houver registro de atividade anterior
-          // e o usuário tiver ficado mais de 30 dias sem acessar o sistema.
+          // e o usuário tiver ficado mais de 7 dias sem acessar o sistema.
           if (ultimaAtividade > 0 && Date.now() - ultimaAtividade > prazoInatividade) {
             localStorage.removeItem('@App:lastActivity');
             await signOut(auth);
