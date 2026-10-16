@@ -11,17 +11,6 @@ import { Login } from './pages/Login';
 import { Painel } from './pages/Painel';
 import { AgendamentoPublico } from './pages/AgendamentoPublico';
 
-// Tipagem global para o OneSignal no TypeScript
-declare global {
-  interface Window {
-    OneSignalDeferred?: any[];
-    OneSignal?: any;
-  }
-}
-
-// Trava para evitar múltiplas inicializações do OneSignal
-let isOneSignalInit = false;
-
 // ============================================================================
 // TOAST CONTEXT PARA SUBSTITUIR ALERT() GLOBALMENTE
 // ============================================================================
@@ -182,25 +171,6 @@ export default function App() {
     };
   }, []);
 
-  // 3. INICIALIZAÇÃO ÚNICA DO ONESIGNAL
-  useEffect(() => {
-    window.OneSignalDeferred = window.OneSignalDeferred || [];
-    window.OneSignalDeferred.push(async (OneSignal: any) => {
-      if (!isOneSignalInit) {
-        try {
-          await OneSignal.init({
-            appId: "a05664b1-082c-49e7-8348-56f901293513",
-            serviceWorkerParam: { scope: "/" },
-            serviceWorkerPath: "OneSignalSDKWorker.js"
-          });
-          isOneSignalInit = true; 
-        } catch (error) {
-          console.warn("OneSignal tentou inicializar novamente e foi bloqueado.");
-        }
-      }
-    });
-  }, []);
-
   // Atualiza o último acesso enquanto o usuário utiliza o sistema.
   // A gravação é limitada a uma vez por minuto para evitar escritas excessivas.
   useEffect(() => {
@@ -228,7 +198,7 @@ export default function App() {
     };
   }, []);
 
-  // 4. GERENCIAMENTO DE AUTENTICAÇÃO E IDENTIFICAÇÃO NO ONESIGNAL
+  // 3. GERENCIAMENTO DE AUTENTICAÇÃO
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       try {
@@ -247,13 +217,6 @@ export default function App() {
           localStorage.setItem('@App:lastActivity', String(Date.now()));
           setUsuario(user);
           
-          if (user.email) {
-            window.OneSignalDeferred = window.OneSignalDeferred || [];
-            window.OneSignalDeferred.push(async (OneSignal: any) => {
-              await OneSignal.Slidedown.promptPush(); 
-              await OneSignal.login(user.email!);
-            });
-          }
 
           const docRef = doc(db, 'usuarios', user.email || '');
           const docSnap = await getDoc(docRef);
@@ -279,10 +242,6 @@ export default function App() {
             localStorage.removeItem('@App:perfil');
           }
         } else {
-          window.OneSignalDeferred = window.OneSignalDeferred || [];
-          window.OneSignalDeferred.push(async (OneSignal: any) => {
-            await OneSignal.logout();
-          });
 
           setUsuario(null);
           setPerfil(null);
