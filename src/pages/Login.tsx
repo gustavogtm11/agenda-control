@@ -6,8 +6,6 @@ import { signInWithPopup, GoogleAuthProvider, setPersistence, browserLocalPersis
 import { useToast } from '../App';
 
 const provedorGoogle = new GoogleAuthProvider();
-// Mantemos o pedido de permissão para ler e escrever na agenda do usuário
-provedorGoogle.addScope('https://www.googleapis.com/auth/calendar.events');
 
 export function Login() {
   const navegar = useNavigate();
@@ -24,14 +22,6 @@ export function Login() {
 
       const resultado = await signInWithPopup(auth, provedorGoogle);
       
-      // Pegamos o "Crachá" (Token) direto do resultado da promessa
-      const credenciais = GoogleAuthProvider.credentialFromResult(resultado);
-      const token = credenciais?.accessToken;
-      
-      if (token) {
-        localStorage.setItem('googleToken', token);
-      }
-
       localStorage.setItem('@App:lastActivity', String(Date.now()));
 
       // Com o login feito e o token salvo, jogamos o usuário para dentro do painel
