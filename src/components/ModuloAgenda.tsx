@@ -2,11 +2,11 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { db, auth } from '../config/firebase'; 
-import { signOut } from 'firebase/auth'; 
 import { collection, addDoc, updateDoc, deleteDoc, query, where, onSnapshot, orderBy, doc, getDocs, getDoc } from 'firebase/firestore';
 import '../App.css';
 import { Toaster, toast } from "sonner";
 import { getFunctions, httpsCallable } from 'firebase/functions';
+import { obterTokenGooglePersistente, iniciarConexaoGoogleCalendar, instalarListenerOAuthGoogle } from '../utils/googleCalendarAuth';
 
 interface ModuloAgendaProps {
   perfil: { companyId: string; role: string; nome?: string; email?: string } | null;
@@ -36,9 +36,6 @@ interface Agendamento {
 }
 
 type DiaSemana = 'domingo' | 'segunda' | 'terca' | 'quarta' | 'quinta' | 'sexta' | 'sabado';
-
-// O token pode estar em qualquer um dos dois storages, conforme o fluxo de login Google usado.
-const obterTokenGoogle = () => localStorage.getItem('googleToken') || sessionStorage.getItem('googleToken');
 
 // Gera um ID estável e aceito pelo Google Calendar para tornar a criação idempotente.
 // O mesmo documento do Firestore sempre aponta para o mesmo evento no Google.
@@ -79,6 +76,8 @@ const gerarHorarios = () => {
 
 export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   const [servicosDisponiveis, setServicosDisponiveis] = useState<Servico[]>([]);
+  const [googleAuthorizationRequired, setGoogleAuthorizationRequired] = useState(false);
+  const [googleConnecting, setGoogleConnecting] = useState(false);
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
 
@@ -118,8 +117,38 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
   const lidarComTokenExpirado = () => {
     localStorage.removeItem('googleToken');
-    toast.error("Sua sessão do Google Calendar expirou por segurança. Você será redirecionado para fazer login novamente.");
-    signOut(auth); 
+    localStorage.removeItem('googleTokenExpiresAt');
+    sessionStorage.removeItem('googleToken');
+    void obterTokenGooglePersistente(true).then((token) => {
+      if (token) window.dispatchEvent(new CustomEvent('google-calendar-token-updated'));
+    });
+    toast.error('O acesso ao Google Agenda está sendo renovado automaticamente. Os agendamentos pendentes serão tentados novamente.');
+  };
+
+  useEffect(() => {
+    const removerListenerOAuth = instalarListenerOAuthGoogle();
+    const exigirAutorizacao = () => setGoogleAuthorizationRequired(true);
+    const tokenAtualizado = () => setGoogleAuthorizationRequired(false);
+    window.addEventListener('google-calendar-authorization-required', exigirAutorizacao);
+    window.addEventListener('google-calendar-token-updated', tokenAtualizado);
+    void obterTokenGooglePersistente();
+    return () => {
+      removerListenerOAuth();
+      window.removeEventListener('google-calendar-authorization-required', exigirAutorizacao);
+      window.removeEventListener('google-calendar-token-updated', tokenAtualizado);
+    };
+  }, []);
+
+  const conectarGoogleAgenda = async () => {
+    setGoogleConnecting(true);
+    try {
+      await iniciarConexaoGoogleCalendar();
+      toast.info('Conclua a autorização do Google na janela aberta. Depois disso, a renovação será automática.');
+    } catch (error: any) {
+      toast.error(error?.message || 'Não foi possível conectar ao Google Agenda.');
+    } finally {
+      setGoogleConnecting(false);
+    }
   };
 
   useEffect(() => {
@@ -159,7 +188,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
       if (cancelamentosGoogleProcessandoRef.current.has(agendamentoId)) return;
       cancelamentosGoogleProcessandoRef.current.add(agendamentoId);
       try {
-        const tokenGoogle = obterTokenGoogle();
+        const tokenGoogle = await obterTokenGooglePersistente();
         if (!tokenGoogle || !navigator.onLine) return;
         const resposta = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(dados.googleEventId)}?sendUpdates=all`, {
           method: 'DELETE',
@@ -408,7 +437,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
     const executarSincronizacao = async () => {
       // O token é consultado a cada tentativa: ele pode ter sido gravado depois que o efeito iniciou.
-      const tokenGoogle = obterTokenGoogle();
+      const tokenGoogle = await obterTokenGooglePersistente();
       if (!navigator.onLine || !tokenGoogle) return;
 
       const agendamentosPendentes = agendamentos.filter(a => a.googleSyncPending);
@@ -817,7 +846,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
     const dataHoraIso = `${dataForm}T${horaForm}`;
     const dataHoraAtendimento = new Date(`${dataHoraIso}:00`);
 
-    const tokenGoogle = obterTokenGoogle();
+    const tokenGoogle = await obterTokenGooglePersistente();
     const start = new Date(`${dataHoraIso}:00`);
     const end = new Date(start.getTime() + (totalDuracao * 60 * 1000));
     
@@ -945,7 +974,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
       if (agenda.status === 'concluido') await efetuarReversao(agenda, true);
 
       if (agenda.googleEventId) {
-        const tokenGoogle = obterTokenGoogle();
+        const tokenGoogle = await obterTokenGooglePersistente();
         if (!tokenGoogle || !navigator.onLine) {
           armazenarExclusaoPendente(agenda.googleEventId);
         } else {
@@ -1057,6 +1086,17 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   return (
     <div style={{ position: 'relative', background: 'var(--bg-card)', padding: '20px', borderRadius: '8px', border: '1px solid var(--borda)', color: 'var(--text-principal)', transition: 'all 0.3s', minHeight: '80vh' }}>
       <Toaster richColors position="top-center" />
+      {googleAuthorizationRequired && (
+        <div role="alert" style={{ marginBottom: '16px', padding: '14px 16px', borderRadius: '8px', border: '1px solid #e5b65c', background: '#fff8e6', color: '#664d03', display: 'flex', gap: '12px', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+          <div style={{ flex: '1 1 260px' }}>
+            <strong>Conecte o Google Agenda uma única vez</strong>
+            <div style={{ fontSize: '13px', marginTop: '4px' }}>Depois da autorização, o sistema renova o acesso automaticamente e não precisa pedir login a cada expiração.</div>
+          </div>
+          <button type="button" onClick={conectarGoogleAgenda} disabled={googleConnecting} style={{ padding: '10px 14px', border: 0, borderRadius: '6px', background: '#1a73e8', color: '#fff', cursor: googleConnecting ? 'wait' : 'pointer', fontWeight: 700 }}>
+            {googleConnecting ? 'Abrindo Google...' : 'Conectar Google Agenda'}
+          </button>
+        </div>
+      )}
       
       {mostrarFormulario ? (
         <div style={{ animation: 'fadeIn 0.3s ease-in-out' }}>
