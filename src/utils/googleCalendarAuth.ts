@@ -1,3 +1,6 @@
+import { auth } from '../config/firebase';
+import { GoogleAuthProvider, reauthenticateWithPopup } from 'firebase/auth';
+
 // Reconecta a autorização do Google Calendar sem encerrar a sessão principal do Firebase.
 // Requer VITE_GOOGLE_CLIENT_ID configurado no ambiente de build (Vercel).
 let scriptPromise: Promise<void> | null = null;
@@ -80,4 +83,29 @@ export function reconectarGoogleCalendarSilenciosamente(): Promise<string | null
   })();
 
   return solicitacaoEmAndamento;
+}
+
+
+/**
+ * Fluxo de recuperação iniciado pelo usuário. Não depende de VITE_GOOGLE_CLIENT_ID,
+ * pois usa o mesmo provedor Google/Firebase já utilizado no login.
+ */
+export async function reconectarGoogleCalendarComPopup(): Promise<string> {
+  const usuario = auth.currentUser;
+  if (!usuario) throw new Error('Sua sessão expirou. Entre novamente no sistema.');
+
+  const provedor = new GoogleAuthProvider();
+  provedor.addScope('https://www.googleapis.com/auth/calendar.events');
+  provedor.setCustomParameters({ prompt: 'select_account' });
+
+  const resultado = await reauthenticateWithPopup(usuario, provedor);
+  const credencial = GoogleAuthProvider.credentialFromResult(resultado);
+  const token = credencial?.accessToken;
+
+  if (!token) throw new Error('O Google não retornou autorização para acessar a agenda.');
+
+  localStorage.setItem('googleToken', token);
+  sessionStorage.removeItem('googleToken');
+  window.dispatchEvent(new CustomEvent('google-calendar-token-updated'));
+  return token;
 }
