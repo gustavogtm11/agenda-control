@@ -20,7 +20,7 @@ export function Login() {
       // Não força uma nova tela de consentimento do Google a cada login.
       provedorGoogle.setCustomParameters({ prompt: 'select_account' });
 
-      const resultado = await signInWithPopup(auth, provedorGoogle);
+      await signInWithPopup(auth, provedorGoogle);
       
       localStorage.setItem('@App:lastActivity', String(Date.now()));
 
