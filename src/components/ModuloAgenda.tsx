@@ -5,6 +5,7 @@ import { db } from '../config/firebase';
 import { collection, addDoc, updateDoc, deleteDoc, query, where, onSnapshot, orderBy, doc, getDocs, getDoc, runTransaction } from 'firebase/firestore';
 import '../App.css';
 import { Toaster, toast } from "sonner";
+import { reconectarGoogleCalendarComPopup } from '../utils/googleCalendarAuth';
 
 interface ModuloAgendaProps {
   perfil: { companyId: string; role: string; nome?: string; email?: string } | null;
@@ -424,6 +425,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
     executarSincronizacao();
     window.addEventListener('online', executarSincronizacao);
+    window.addEventListener('google-calendar-token-updated', executarSincronizacao);
     
     const intervaloSincronismo = setInterval(() => {
       executarSincronizacao();
@@ -431,6 +433,7 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
 
     return () => {
       window.removeEventListener('online', executarSincronizacao);
+      window.removeEventListener('google-calendar-token-updated', executarSincronizacao);
       clearInterval(intervaloSincronismo);
     };
   }, [agendamentos, perfil?.companyId, funcionarios]);
@@ -973,6 +976,34 @@ export function ModuloAgenda({ perfil }: ModuloAgendaProps) {
   return (
     <div style={{ position: 'relative', background: 'var(--bg-card)', padding: '20px', borderRadius: '8px', border: '1px solid var(--borda)', color: 'var(--text-principal)', transition: 'all 0.3s', minHeight: '80vh' }}>
       <Toaster richColors position="top-center" />
+
+      {agendamentos.some(a => a.googleSyncPending) && !obterTokenGoogle() && (
+        <div style={{ marginBottom: '18px', padding: '14px 16px', borderRadius: '8px', border: '1px solid #f0ad4e', background: 'rgba(240, 173, 78, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+          <div style={{ flex: '1 1 240px' }}>
+            <strong style={{ display: 'block', marginBottom: '4px' }}>Google Agenda desconectado</strong>
+            <span style={{ fontSize: '13px' }}>Seus agendamentos foram salvos no sistema, mas ainda aguardam sincronização com o Google Agenda. Reconecte para enviar os pendentes.</span>
+          </div>
+          <button
+            type="button"
+            onClick={async () => {
+              const toastId = toast.loading('Reconectando ao Google Agenda...');
+              try {
+                await reconectarGoogleCalendarComPopup();
+                toast.dismiss(toastId);
+                toast.success('Google Agenda reconectado. Sincronizando os agendamentos pendentes.');
+              } catch (erro: any) {
+                toast.dismiss(toastId);
+                if (erro?.code !== 'auth/popup-closed-by-user' && erro?.code !== 'auth/cancelled-popup-request') {
+                  toast.error(erro?.message || 'Não foi possível reconectar ao Google Agenda.');
+                }
+              }
+            }}
+            style={{ padding: '10px 14px', border: 'none', borderRadius: '6px', background: '#2980b9', color: '#fff', cursor: 'pointer', fontWeight: 'bold' }}
+          >
+            Reconectar Google Agenda
+          </button>
+        </div>
+      )}
       
       {mostrarFormulario ? (
         <div style={{ animation: 'fadeIn 0.3s ease-in-out' }}>
