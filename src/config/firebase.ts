@@ -1,7 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, setPersistence, browserLocalPersistence } from "firebase/auth";
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore"; 
-import { getMessaging } from "firebase/messaging";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -28,4 +27,3 @@ setPersistence(auth, browserLocalPersistence)
 
 export const provedorGoogle = new GoogleAuthProvider();
 provedorGoogle.addScope('https://www.googleapis.com/auth/calendar.events');
-export const messaging = getMessaging(app);
