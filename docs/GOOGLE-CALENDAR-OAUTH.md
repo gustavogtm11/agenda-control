@@ -8,7 +8,7 @@ Configure estas variáveis para **Production** e também Preview, se for testar 
 
 - `GOOGLE_CLIENT_ID`: ID do cliente OAuth 2.0 do tipo **Aplicativo da Web**, criado no Google Cloud.
 - `GOOGLE_CLIENT_SECRET`: segredo do mesmo cliente OAuth.
-- `GOOGLE_REDIRECT_URI`: `https://agenda-control-seven.vercel.app/api/google-calendar-oauth?action=callback` (ou o domínio de produção atual, exatamente igual ao cadastrado no Google Cloud).
+- `GOOGLE_REDIRECT_URI`: `https://agenda-control-seven.vercel.app/api/google-calendar-callback` (ou o domínio de produção atual, exatamente igual ao cadastrado no Google Cloud).
 - `GOOGLE_OAUTH_STATE_SECRET`: segredo aleatório longo usado para assinar o estado OAuth.
 - `GOOGLE_TOKEN_ENCRYPTION_KEY`: chave aleatória de **32 bytes em Base64** para criptografar os tokens.
 - `APP_ORIGIN`: `https://agenda-control-seven.vercel.app`.
