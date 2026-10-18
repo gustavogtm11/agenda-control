@@ -22,8 +22,11 @@ export const db = initializeFirestore(app, {
 export const auth = getAuth(app);
 
 // 💡 CORREÇÃO AQUI: Força o navegador a lembrar do login mesmo se a aba ou o Chrome forem fechados
-setPersistence(auth, browserLocalPersistence)
-  .catch((error) => console.error("Erro ao definir persistência de login:", error));
+// A aplicação aguarda esta promessa antes de observar o estado de autenticação.
+export const authPersistenceReady = setPersistence(auth, browserLocalPersistence)
+  .catch((error) => {
+    console.error("Erro ao definir persistência de login:", error);
+  });
 
 export const provedorGoogle = new GoogleAuthProvider();
 provedorGoogle.addScope('https://www.googleapis.com/auth/calendar.events');
