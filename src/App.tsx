@@ -1,6 +1,6 @@
 import React, { useEffect, useState, createContext, useContext } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { auth, db } from './config/firebase'; 
+import { auth, db, authPersistenceReady } from './config/firebase'; 
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore'; 
 
@@ -116,6 +116,17 @@ function PwaPrompt({ promptEvent, onDismiss }: { promptEvent: any, onDismiss: ()
   );
 }
 
+// Evita que uma consulta lenta ao Firestore deixe a tela de autenticação
+// carregando indefinidamente. O perfil em cache continua disponível como fallback.
+function withTimeout<T>(promise: Promise<T>, message: string, timeoutMs: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      window.setTimeout(() => reject(new Error(message)), timeoutMs);
+    }),
+  ]);
+}
+
 // ============================================================================
 // APP PRINCIPAL
 // ============================================================================
@@ -200,7 +211,14 @@ export default function App() {
 
   // 3. GERENCIAMENTO DE AUTENTICAÇÃO
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    let unsubscribe = () => {};
+    let cancelled = false;
+
+    // Só observa o estado de login depois que o Firebase terminar de configurar
+    // a persistência local, evitando uma corrida durante a restauração da sessão.
+    authPersistenceReady.then(() => {
+      if (cancelled) return;
+      unsubscribe = onAuthStateChanged(auth, async (user) => {
       try {
         if (user) {
           const ultimaAtividade = Number(localStorage.getItem('@App:lastActivity') || 0);
@@ -219,7 +237,11 @@ export default function App() {
           
 
           const docRef = doc(db, 'usuarios', user.email || '');
-          const docSnap = await getDoc(docRef);
+          const docSnap = await withTimeout(
+            getDoc(docRef),
+            'A consulta do perfil demorou demais.',
+            12000
+          );
           
           if (docSnap.exists()) {
             const dadosPerfil = docSnap.data();
@@ -230,7 +252,11 @@ export default function App() {
             
             if (dadosPerfil.companyId) {
               const empresaRef = doc(db, 'empresas', dadosPerfil.companyId);
-              const empresaSnap = await getDoc(empresaRef);
+              const empresaSnap = await withTimeout(
+                getDoc(empresaRef),
+                'A consulta dos dados da empresa demorou demais.',
+                12000
+              );
               if (empresaSnap.exists()) {
                 const bloqueada = empresaSnap.data().bloqueada === true;
                 setEmpresaBloqueada(bloqueada);
@@ -254,9 +280,16 @@ export default function App() {
         // O carregamento só termina APÓS o Firebase validar o usuário e atualizar o Firestore
         setAuthLoading(false);
       }
+      });
+    }).catch((error) => {
+      console.error("Erro ao preparar a persistência de autenticação:", error);
+      setAuthLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, []);
 
   const dismissPwaPrompt = () => {
